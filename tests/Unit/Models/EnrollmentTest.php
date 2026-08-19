@@ -181,6 +181,44 @@ class EnrollmentTest extends TestCase
         $this->assertTrue($results->first()->is($assigned));
     }
 
+    /**
+     * 担当を解除されたコーチには、その資格の enrollment が見えなくなることを検証する。
+     *
+     * scopeForUser の coach 分岐は Certification::coaches() を経由しており、
+     * そのリレーションが持つ wherePivot('unassigned_at', null)(Certification.php)に
+     * 「解除済みを除外する」責務を委ねている。この暗黙の依存が将来外れても
+     * 既存テストはすべて緑のまま通ってしまうため、ここで明示的に固定する。
+     */
+    public function test_scope_for_user_coach_excludes_unassigned_certifications(): void
+    {
+        // Arrange: coach に一度アサインし、その後 unassigned_at を入れて担当解除の状態にする
+        $coach = User::factory()->coach()->create();
+        $admin = User::factory()->admin()->create();
+        $unassignedCert = Certification::factory()->published()->create();
+
+        CertificationCoachAssignment::create([
+            'certification_id' => $unassignedCert->id,
+            'user_id' => $coach->id,
+            'assigned_by_user_id' => $admin->id,
+            'assigned_at' => now()->subDays(10),
+            // unassigned_at が入っている = 担当を外された状態(行自体は履歴として残す運用)
+            'unassigned_at' => now()->subDay(),
+        ]);
+
+        // 解除済み資格に属する enrollment。担当が続いていれば見えるが、解除後は見えてはいけない
+        Enrollment::factory()->for($unassignedCert)->create();
+
+        // Act
+        $results = Enrollment::forUser($coach)->get();
+
+        // Assert
+        $this->assertCount(
+            0,
+            $results,
+            '担当を解除された coach には、その資格の enrollment が見えてはいけない',
+        );
+    }
+
     public function test_scope_for_user_student_returns_only_own_enrollments(): void
     {
         // Arrange
