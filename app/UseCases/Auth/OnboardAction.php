@@ -43,11 +43,19 @@ final class OnboardAction
     public function __invoke(Invitation $invitation, array $validated): User
     {
         $user = DB::transaction(function () use ($invitation, $validated) {
-            $invitation->refresh();
-            $user = $invitation->user;
+            // 招待行を排他ロックして読み直す。refresh() は非ロック読み取りのため、同時に 2 リクエストが
+            // 届くと両方が pending を見てガードを通過し、二重にオンボーディングが成立してしまう
+            // (送信ボタンのダブルクリックで到達する)。
+            $invitation = Invitation::query()
+                ->whereKey($invitation->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            $user = $invitation?->user;
 
             if (
-                $user === null
+                $invitation === null
+                || $user === null
                 || $invitation->status !== InvitationStatus::Pending
                 || $invitation->expires_at === null
                 || $invitation->expires_at->isPast()
@@ -100,6 +108,13 @@ final class OnboardAction
                     reason: 'オンボーディング初期付与',
                 );
             }
+
+            // 招待を使用済みにする。これを行わないと同じ招待 URL で何度でも登録し直せてしまう
+            // (2 回目以降は冒頭の status !== Pending 判定で InvalidInvitationTokenException となり 410 で弾かれる)。
+            $invitation->forceFill([
+                'status' => InvitationStatus::Accepted,
+                'accepted_at' => $now,
+            ])->save();
 
             return $user->refresh();
         });
