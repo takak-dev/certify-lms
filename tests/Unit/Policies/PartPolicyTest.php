@@ -53,6 +53,13 @@ class PartPolicyTest extends TestCase
 
         $this->assertTrue($policy->update($coach, $assignedPart));
         $this->assertFalse($policy->update($coach, $otherPart));
+
+        // viewAny / view は canManage を経由せず独自に判定しているため、別途固定する。
+        // B-B-01 ではこの 2 メソッドが担当資格を見ずにコーチを無条件拒否していた。
+        $this->assertTrue($policy->viewAny($coach, $assignedCert));
+        $this->assertFalse($policy->viewAny($coach, $otherCert));
+        $this->assertTrue($policy->view($coach, $assignedPart));
+        $this->assertFalse($policy->view($coach, $otherPart));
     }
 
     public function test_student_view_published_only(): void

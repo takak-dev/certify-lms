@@ -66,9 +66,24 @@ class SectionPolicyTest extends TestCase
         $part = Part::factory()->for($assignedCert)->published()->create();
         $chapter = Chapter::factory()->for($part)->published()->create();
         $section = Section::factory()->for($chapter)->published()->create();
+
+        // 担当外の資格に属する Section も用意し、「担当のみ許可」であることを両方向で確かめる
+        $otherCert = Certification::factory()->published()->create();
+        $otherPart = Part::factory()->for($otherCert)->published()->create();
+        $otherChapter = Chapter::factory()->for($otherPart)->published()->create();
+        $otherSection = Section::factory()->for($otherChapter)->published()->create();
+
         $policy = new SectionPolicy;
 
         $this->assertTrue($policy->update($coach, $section));
         $this->assertTrue($policy->preview($coach, $section));
+        $this->assertFalse($policy->update($coach, $otherSection));
+
+        // viewAny / view は canManage を経由せず独自に判定しているため、別途固定する。
+        // 特に view は B-B-01 で取りこぼしやすい形(match ではなく if 文)で書かれていた。
+        $this->assertTrue($policy->viewAny($coach, $chapter));
+        $this->assertFalse($policy->viewAny($coach, $otherChapter));
+        $this->assertTrue($policy->view($coach, $section));
+        $this->assertFalse($policy->view($coach, $otherSection));
     }
 }
