@@ -77,6 +77,10 @@ final class OnboardAction
                 'password' => Hash::make($validated['password']),
                 'profile_setup_completed' => true,
                 'email_verified_at' => $now,
+                // invited のままだと再ログイン時に AuthenticateUserUsing で弾かれ、active-learning も通れない。
+                // UserStatusChangeService::record() は監査ログを INSERT するだけで status は更新しないため、
+                // 遷移そのものは呼出側で行う(GraduateUserAction と同じ「record() + status 更新」の対)。
+                'status' => UserStatus::InProgress->value,
             ];
 
             // 受講生のみ Plan 期間を確定。コーチは受講期間という業務概念を持たない。

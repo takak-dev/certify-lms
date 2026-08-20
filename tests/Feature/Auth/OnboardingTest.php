@@ -168,6 +168,44 @@ class OnboardingTest extends TestCase
         ]);
     }
 
+    /**
+     * オンボーディング完了 → ログアウト → 同じ資格情報での再ログイン、を通しで検証する。
+     *
+     * 完了直後の自動ログインは OnboardAction が Auth::login() を直接呼ぶため状態チェックを通らず、
+     * users.status が invited のまま残っていても成功してしまう(B-B-12 の症状)。
+     * 一方 AuthenticateUserUsing は status を見て弾くので、通しで試さないと不具合を検知できない。
+     * DB の値ではなく「実際にログインできるか」を固定するテストとして追加する。
+     * パスワードの保存経路(Hash::make + hashed キャスト)も同時に守る。
+     */
+    public function test_user_can_log_in_again_after_onboarding_and_logout(): void
+    {
+        // Arrange: 未使用の招待と、そのユーザーのメールアドレス
+        $invitation = $this->freshInvitation();
+        $email = $invitation->user->email;
+
+        // Act 1: オンボーディングを完了する(この時点で自動ログインされる)
+        $this->post($this->postUrl($invitation), [
+            'name' => '受講太郎',
+            'password' => 'secret-pass',
+            'password_confirmation' => 'secret-pass',
+        ]);
+        $this->assertAuthenticated();
+
+        // Act 2: ログアウトする
+        $this->post(route('logout'));
+        $this->assertGuest();
+
+        // Act 3: 同じメールアドレス・パスワードで再ログインする
+        $response = $this->post(route('login'), [
+            'email' => $email,
+            'password' => 'secret-pass',
+        ]);
+
+        // Assert: 認証が通ること(status が invited のままだとここで弾かれる)
+        $this->assertAuthenticated();
+        $response->assertRedirect(route('dashboard.index'));
+    }
+
     public function test_store_sets_plan_period_from_plan_duration_days(): void
     {
         $plan = $this->plan(durationDays: 120);
