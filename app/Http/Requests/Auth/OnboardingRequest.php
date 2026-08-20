@@ -7,6 +7,7 @@ namespace App\Http\Requests\Auth;
 use App\Enums\UserRole;
 use App\Models\Invitation;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rules\Password;
 
 /**
  * オンボーディングフォーム(初回パスワード設定 + プロフィール入力)のリクエスト。
@@ -29,7 +30,9 @@ class OnboardingRequest extends FormRequest
         $rules = [
             'name' => ['required', 'string', 'max:50'],
             'bio' => ['nullable', 'string', 'max:1000'],
-            'password' => ['required', 'string', 'min:8'],
+            // confirmed: password_confirmation との一致を検証する(Laravel が {項目名}_confirmation を自動で探す)。
+            // Password::default() は Fortify 側 (PasswordValidationRules) と同じ既定ルールを参照する。
+            'password' => ['required', 'string', Password::default(), 'confirmed'],
         ];
 
         if ($this->invitedRole() === UserRole::Coach) {
