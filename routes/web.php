@@ -102,6 +102,14 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->group(function (
 
 // ============================================================
 // 受講生専用 設定ルート(デフォルト資格の永続変更)
+//
+// ⚠️ このグループは「受講中(in_progress)の受講生だけが使う設定」専用。
+//    active-learning が付いているため graduated / withdrawn / invited は 403 になり、
+//    role:student のため coach / admin も 403 になる。
+//    プロフィール / パスワード / アバターのように「修了後も使える」「全ロールが使う」設定を
+//    settings プレフィックスで足したくなっても、このグループには追加しないこと。
+//    その場合は auth のみのグループ(本ファイル冒頭の「認証後の全ロール共通ルート」)側に
+//    別グループを作る。認可はロールではなく Policy で行う。
 // ============================================================
 Route::middleware(['auth', 'role:student', 'active-learning'])
     ->prefix('settings')
