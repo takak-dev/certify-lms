@@ -59,6 +59,12 @@ class ChapterPolicyTest extends TestCase
 
         $this->assertTrue($policy->update($coach, $assignedChapter));
         $this->assertFalse($policy->update($coach, $otherChapter));
+
+        // viewAny / view は canManage を経由せず独自に判定しているため、別途固定する。
+        $this->assertTrue($policy->viewAny($coach, $assignedPart));
+        $this->assertFalse($policy->viewAny($coach, $otherPart));
+        $this->assertTrue($policy->view($coach, $assignedChapter));
+        $this->assertFalse($policy->view($coach, $otherChapter));
     }
 
     public function test_student_can_view_only_published_chapter(): void
