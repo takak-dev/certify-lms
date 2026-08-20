@@ -153,6 +153,31 @@ class EnrollmentControllerTest extends TestCase
         $response->assertForbidden();
     }
 
+    /**
+     * 修了(graduated)した受講生でも、受講登録の閲覧は引き続きできることを検証する。
+     *
+     * active-learning Middleware は「プラン機能」だけを止める設計で、
+     * ダッシュボード / 受講登録の閲覧 / プロフィール / 修了証は修了後も使えなければならない
+     * (S-B-06・S-A-04 の要件と逆方向になるため、過剰に弾くと別チケットが壊れる)。
+     * enrollments.index / show に active-learning が付いていないことを機械的に固定する。
+     */
+    public function test_graduated_student_can_still_view_enrollments(): void
+    {
+        // Arrange: 修了済みの受講生と、その受講登録
+        $graduated = User::factory()->student()->graduated()->create();
+        $enrollment = Enrollment::factory()->for($graduated)->create();
+
+        // Act & Assert: 一覧は閲覧できる
+        $this->actingAs($graduated)
+            ->get(route('enrollments.index'))
+            ->assertOk();
+
+        // Act & Assert: 詳細も閲覧できる
+        $this->actingAs($graduated)
+            ->get(route('enrollments.show', $enrollment))
+            ->assertOk();
+    }
+
     public function test_coach_cannot_use_student_only_routes(): void
     {
         // Arrange
