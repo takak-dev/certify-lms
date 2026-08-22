@@ -7,7 +7,7 @@ namespace App\UseCases\Part;
 use App\Models\Part;
 
 /**
- * Part 詳細取得ユースケース。Certification と Chapter を Eager Load する。
+ * Part 詳細取得ユースケース。Certification と Chapter を Eager Load する(Chapter は order 昇順)。
  */
 final class ShowAction
 {
@@ -15,7 +15,7 @@ final class ShowAction
     {
         return $part->load([
             'certification',
-            'chapters' => fn ($q) => $q->withCount('sections'),
+            'chapters' => fn ($q) => $q->ordered()->withCount('sections'),
         ]);
     }
 }
