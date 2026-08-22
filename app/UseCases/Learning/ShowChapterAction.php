@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\UseCases\Learning;
 
+use App\Enums\CertificationStatus;
 use App\Enums\ContentStatus;
 use App\Models\Chapter;
 use App\Models\SectionProgress;
@@ -13,7 +14,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * /learning/chapters/{chapter} (4 階層目、Section 一覧) のデータを準備する Action。
  *
- * cascade visibility (Chapter / 親 Part のいずれかが Draft / SoftDelete) で 404、
+ * cascade visibility (Chapter / 親 Part が Draft、または資格が Published 以外) で 404、
  * 公開済 Section 一覧と受講生の読了済 Section ID 配列を併せて返す (Section 行の読了バッジ用)。
  */
 final class ShowChapterAction
@@ -27,7 +28,9 @@ final class ShowChapterAction
 
         if ($chapter->status !== ContentStatus::Published
             || $chapter->part === null
-            || $chapter->part->status !== ContentStatus::Published) {
+            || $chapter->part->status !== ContentStatus::Published
+            || $chapter->part->certification === null
+            || $chapter->part->certification->status !== CertificationStatus::Published) {
             throw new NotFoundHttpException;
         }
 
