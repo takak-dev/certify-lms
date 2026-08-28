@@ -97,6 +97,51 @@ class BrowseControllerTest extends TestCase
         $response->assertForbidden();
     }
 
+    public function test_show_chapter_forbidden_for_non_enrolled_student(): void
+    {
+        // Arrange: 資格は「公開中」にする。
+        //   実測で穴が見つかったのがこの条件(公開中の資格に未登録の受講生が Chapter を開くと 200 だった)。
+        //   兄弟の Part 版(:90-98)は factory 既定の Draft 資格を使い「認可(403)が
+        //   cascade visibility(404)より先に評価される」順序を守っているので、
+        //   こちらは「公開中でも未登録なら 403」を担当し、2本で条件を分担する。
+        $certification = Certification::factory()->published()->create();
+        $part = Part::factory()->for($certification)->create(['status' => ContentStatus::Published->value]);
+        $chapter = Chapter::factory()->for($part)->create(['status' => ContentStatus::Published->value]);
+
+        // この受講生は上記資格に受講登録していない(Enrollment を作らない)のが要点。
+        $student = User::factory()->student()->inProgress()->create();
+
+        // Act: Chapter 詳細を直リンクで開く(IDOR の再現)
+        $response = $this->actingAs($student)->get(route('learning.chapters.show', $chapter));
+
+        // Assert: 教材の存在は隠さず「権限が無い」と伝える = 403
+        //   (非公開資格を 404 で隠す B-B-03 の判定は Action 側にあり、認可より後に評価される。
+        //    つまり #52 の「Draft/Archived は 404」は受講登録済みの受講生に対してのみ成立する)
+        $response->assertForbidden();
+    }
+
+    public function test_show_section_forbidden_for_non_enrolled_student(): void
+    {
+        // Arrange: Part / Chapter 版と同じく、公開中の資格に未登録の受講生を用意する。
+        //   チケット再現手順が Part / Chapter / Section の3階層を挙げているため、
+        //   Section も未登録ケースを固定する(既存の :175-180 は failed 登録のケースで条件が違う)。
+        $certification = Certification::factory()->published()->create();
+        $part = Part::factory()->for($certification)->create(['status' => ContentStatus::Published->value]);
+        $chapter = Chapter::factory()->for($part)->create(['status' => ContentStatus::Published->value]);
+        $section = Section::factory()->for($chapter)->create([
+            'status' => ContentStatus::Published->value,
+            'body' => '# テスト本文',
+        ]);
+
+        $student = User::factory()->student()->inProgress()->create();
+
+        // Act
+        $response = $this->actingAs($student)->get(route('learning.sections.show', $section));
+
+        // Assert
+        $response->assertForbidden();
+    }
+
     public function test_show_chapter_404_when_draft_part(): void
     {
         [$student, $certification] = $this->buildStudentAndCertification();
