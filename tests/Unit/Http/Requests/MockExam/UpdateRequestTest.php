@@ -30,6 +30,36 @@ class UpdateRequestTest extends TestCase
         $this->assertTrue($validator->passes(), $validator->errors()->toJson());
     }
 
+    /**
+     * 上限・下限の「ちょうどの値」が通ることを固定する。
+     *
+     * 既存の異常系は 0 と 101 を弾くことしか見ていないため、仮に max:99 と書き間違えても
+     * (101 は落ち 60 は通るので)全テストが緑のまま素通りしてしまう。境界そのものを押さえる。
+     */
+    #[DataProvider('boundaryPassingScores')]
+    public function test_passes_for_boundary_passing_score(int $passingScore): void
+    {
+        // Arrange: 合格点だけを境界値に差し替え、他の項目は正常系と同じにする
+        $payload = ['title' => '基本情報模試 第2回', 'order' => 1, 'passing_score' => $passingScore];
+
+        // Act
+        $validator = Validator::make($payload, (new UpdateRequest)->rules());
+
+        // Assert
+        $this->assertTrue($validator->passes(), $validator->errors()->toJson());
+    }
+
+    /**
+     * @return array<string, array{int}>
+     */
+    public static function boundaryPassingScores(): array
+    {
+        return [
+            '下限 1' => [1],
+            '上限 100' => [100],
+        ];
+    }
+
     #[DataProvider('invalidCases')]
     public function test_fails_for_invalid_field(string $field, mixed $value): void
     {
