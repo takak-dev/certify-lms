@@ -9,6 +9,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * 模試マスタの更新リクエスト。`certification_id` は不可変なので受け付けない。
+ * `passing_score` は 1..100 の整数(百分率)。
  */
 class UpdateRequest extends FormRequest
 {
@@ -29,7 +30,7 @@ class UpdateRequest extends FormRequest
             'title' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:2000'],
             'order' => ['required', 'integer', 'min:0', 'max:65535'],
-            'passing_score' => ['required', 'integer', 'min:1'],
+            'passing_score' => ['required', 'integer', 'min:1', 'max:100'],
         ];
     }
 
