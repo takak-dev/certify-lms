@@ -44,11 +44,22 @@ final class FetchCoachDashboardAction
         $assignedEnrollments = Enrollment::query()
             ->whereIn('certification_id', $coachingCertificationIds)
             ->whereIn('status', [EnrollmentStatus::Learning, EnrollmentStatus::Passed])
+            // 一覧の各行が参照する関連を先読みする。行ごとに引くと受講生の数だけクエリが増える(N+1)。
+            // 関連 1 つにつき 1 本の IN 句クエリで済み、件数が増えても本数は変わらない。
+            ->with(['user', 'certification'])
+            // 最終活動日時は MAX(started_at) という集計値なので with() では取れない。
+            // withMax は SELECT 句にサブクエリを埋め込むため、追加のクエリを発行しない(withCount と同じ仕組み)。
+            // この手段は規約側の指定でもある: DashboardArchitectureTest::test_enrollment_model_does_not_define_last_learning_session_relation
+            // が「Enrollment.lastLearningSession リレーションは禁止(Action 側で withMax を使う)」と明記している。
+            //
+            // `as last_activity_at` の別名は必須: 既定の属性名は learning_sessions_max_started_at になり、
+            // 表示側(dashboard/_partials/coach/assigned-students-list.blade.php の $lastActivityAt)が読む名前と
+            // 食い違う。例外にならないまま全員「記録なし」と表示されるだけなので、テストでも気づけない。
+            //
+            // LastActivityService は使わない: あちらは MAX(ended_at) と演習解答の MAX(answered_at) を統合した
+            // 別定義で、本画面が表示してきた MAX(started_at) とは値が変わる。本チケットは振る舞い不変が要件。
+            ->withMax('learningSessions as last_activity_at', 'started_at')
             ->get();
-
-        foreach ($assignedEnrollments as $enrollment) {
-            $enrollment->last_activity_at = $enrollment->learningSessions()->max('started_at');
-        }
 
         $todayAndTomorrowMeetings = Meeting::query()
             ->where('coach_id', $coach->id)

@@ -13,6 +13,7 @@ use App\Models\Meeting;
 use App\Models\User;
 use App\Services\ChatUnreadCountService;
 use App\UseCases\Dashboard\FetchCoachDashboardAction;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Mockery;
@@ -56,6 +57,44 @@ class FetchCoachDashboardActionTest extends TestCase
 
         $first = $vm->assignedEnrollments->first();
         $this->assertNotNull($first->last_activity_at);
+    }
+
+    /**
+     * T-B-01 の回帰防止テスト。
+     *
+     * 直前の `test_assigned_enrollments_carry_last_activity_at_via_with_max` は
+     * 学習セッションを 1 件しか作らないため、「最大値を取っているか」を検証できない。
+     * 集計関数を withMin / withAvg に書き間違えても、値が 1 つしか無いので同じ結果になり緑のまま通る。
+     * セッションを 3 件・別々の日時で作り、**最も新しい 1 件**が採られることを固定する。
+     */
+    public function test_last_activity_at_is_the_newest_of_multiple_sessions(): void
+    {
+        // Arrange: コーチ + 担当資格 + 受講生 1 名
+        $coach = User::factory()->coach()->inProgress()->create();
+        $cert = Certification::factory()->published()->create();
+        $this->attachCoach($cert, $coach);
+        $enrollment = Enrollment::factory()->for($cert)->learning()->create();
+
+        // Arrange: 学習セッション 3 件。最大が先頭にも末尾にも来ないよう、あえて中央に置く
+        // (先頭・末尾だと「最初の 1 件」「最後の 1 件」を返す実装でも偶然通ってしまう)
+        $newest = now()->subDay()->startOfSecond();
+        foreach ([now()->subDays(3), $newest, now()->subDays(5)] as $startedAt) {
+            LearningSession::factory()
+                ->forEnrollment($enrollment)
+                ->forUser($enrollment->user)
+                ->closed()
+                ->startedOn($startedAt)
+                ->create();
+        }
+
+        // Act
+        $vm = app(FetchCoachDashboardAction::class)($coach);
+
+        // Assert: 3 件のうち最も新しい「昨日」が入る。
+        // last_activity_at は集計値なので $casts が効かず文字列で返る。
+        // 表示側の $lastActivityAt も文字列を Carbon::parse する前提なので、ここでも Carbon に通してから比較する。
+        $actual = Carbon::parse((string) $vm->assignedEnrollments->first()->last_activity_at);
+        $this->assertSame($newest->toDateTimeString(), $actual->toDateTimeString());
     }
 
     public function test_only_passed_and_learning_enrollments_are_displayed(): void
