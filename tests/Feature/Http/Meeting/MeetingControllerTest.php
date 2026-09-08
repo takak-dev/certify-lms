@@ -11,6 +11,7 @@ use App\Models\CoachAvailability;
 use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Services\MeetingQuotaService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -315,5 +316,54 @@ class MeetingControllerTest extends TestCase
             'type' => MeetingQuotaTransactionType::Refunded->value,
             'amount' => 1,
         ]);
+    }
+
+    /**
+     * B-B-10 の回帰防止テスト。
+     *
+     * 返却先は「キャンセルした人」ではなく「面談の受講生」でなければならない。
+     * `test_cancel_refunds_meeting_quota`(同ファイル) は受講生が自分でキャンセルするため、
+     * 操作者と受講生が同一人物になり、返却先を操作者に取り違えても緑のまま通ってしまう。
+     * コーチがキャンセルする経路を通して初めて両者の差が現れる。
+     * (チケット原典「受講生(student) / コーチ(coach)が予約済みの面談をキャンセルすると」/
+     *  MeetingPolicy::cancel が受講生とコーチの双方に許可している)
+     */
+    public function test_cancel_by_coach_refunds_quota_to_the_student(): void
+    {
+        // Arrange: 予約済(開始前)の面談 1 件。max_meetings は残数計算の起点として明示しておく。
+        $student = User::factory()->student()->inProgress()->create(['max_meetings' => 5]);
+        $coach = User::factory()->coach()->create();
+        $meeting = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)->create([
+            'scheduled_at' => now()->addDays(3)->startOfHour(),
+        ]);
+
+        // Arrange: 要件「キャンセル後の残数がキャンセル前 + 1」を検証するため、事前の残数を控える。
+        // 残数はカラムではなく max_meetings + SUM(amount) の計算結果なので、都度 Service に問い合わせる。
+        $quotaService = app(MeetingQuotaService::class);
+        $remainingBefore = $quotaService->remaining($student);
+
+        // Act: 受講生ではなく担当コーチとしてキャンセルする
+        $response = $this->actingAs($coach)->post(route('meetings.cancel', $meeting));
+
+        // Assert: キャンセル自体は成立する
+        $response->assertRedirect();
+        $this->assertSame(MeetingStatus::Canceled, $meeting->fresh()->status);
+
+        // Assert: 返却行の user_id は受講生である
+        $this->assertDatabaseHas('meeting_quota_transactions', [
+            'user_id' => $student->id,
+            'related_meeting_id' => $meeting->id,
+            'type' => MeetingQuotaTransactionType::Refunded->value,
+            'amount' => 1,
+        ]);
+
+        // Assert: コーチ宛の取引行は 1 件も作られない(コーチに面談回数が付いてはいけない)
+        $this->assertDatabaseMissing('meeting_quota_transactions', [
+            'user_id' => $coach->id,
+        ]);
+
+        // Assert: 残数そのものが +1 になる。行の存在だけを見ると、
+        // MeetingQuotaService::remaining() の集計対象から Refunded が外れても検出できない。
+        $this->assertSame($remainingBefore + 1, $quotaService->remaining($student));
     }
 }

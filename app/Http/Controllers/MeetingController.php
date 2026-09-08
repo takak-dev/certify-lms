@@ -233,7 +233,7 @@ class MeetingController extends Controller
 
         $actor = auth()->user();
 
-        DB::transaction(function () use ($meeting, $actor) {
+        DB::transaction(function () use ($meeting, $actor, $refundAction) {
             $locked = Meeting::query()->whereKey($meeting->id)->lockForUpdate()->first();
             if ($locked === null || $locked->status !== MeetingStatus::Reserved) {
                 throw MeetingStatusTransitionException::forCancel();
@@ -248,6 +248,14 @@ class MeetingController extends Controller
                 'canceled_by_user_id' => $actor->id,
                 'canceled_at' => now(),
             ]);
+
+            // 消費済の 1 回分を返却する。残数は取引の積み上げ(MeetingQuotaService::remaining)で求めるため、
+            // 返却は refunded を 1 行足して表す(max_meetings はプラン付与の総数を持つ列であり、
+            // キャンセル返却で触る列ではない)。
+            // 返却先はキャンセル操作者ではなく面談の受講生: コーチがキャンセルした場合も回数は受講生に戻る。
+            // 上の Reserved ガードと同じロック・同じトランザクション内に置くことで、二重返却と
+            // 「status だけ canceled で返却されていない」状態の両方を防ぐ。
+            ($refundAction)($locked->student, $locked->id);
         });
 
         return redirect()
