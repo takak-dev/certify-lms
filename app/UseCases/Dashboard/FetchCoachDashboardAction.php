@@ -111,6 +111,8 @@ final class FetchCoachDashboardAction
 
         return QaThread::query()
             ->whereIn('certification_id', $certificationIds)
+            // 担当資格が公開停止になった場合、コーチには見せない(S-B-01 のアクセス制御に揃える)
+            ->wherePublishedCertification()
             ->where('status', QaThreadStatus::Open)
             ->whereDoesntHave('replies')
             ->count();
@@ -132,6 +134,8 @@ final class FetchCoachDashboardAction
 
         return QaThread::query()
             ->whereIn('certification_id', $certificationIds)
+            // 同上。タイトル・投稿者名が漏れないよう、一覧と同じ条件で絞る
+            ->wherePublishedCertification()
             ->where('status', QaThreadStatus::Open)
             ->whereDoesntHave('replies')
             ->with(['user', 'certification'])

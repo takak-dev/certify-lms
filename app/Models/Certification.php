@@ -155,6 +155,28 @@ class Certification extends Model
         };
     }
 
+    /**
+     * 質問掲示板の絞り込みチップに出せる資格。閲覧できるスレッドの範囲と揃える。
+     *
+     * - admin: 全資格(公開停止中を含む)。モデレーション画面は公開停止も対象
+     * - coach: 担当資格かつ公開中。担当外を並べても押した先が 0 件になる(decisions #40)
+     * - student: 公開中すべて。受講登録は前提にしない
+     *
+     * `scopeForUser()` は admin / coach 専用(student は空集合)のため流用できず、別 scope にしている。
+     *
+     * @param Builder<Certification> $query
+     *
+     * @return Builder<Certification>
+     */
+    public function scopeSelectableOnQaBoard(Builder $query, User $viewer): Builder
+    {
+        return match ($viewer->role) {
+            UserRole::Admin => $query,
+            UserRole::Coach => $query->published()->assignedTo($viewer),
+            default => $query->published(),
+        };
+    }
+
     public function scopeKeyword(Builder $query, ?string $keyword): Builder
     {
         if ($keyword === null || $keyword === '') {
