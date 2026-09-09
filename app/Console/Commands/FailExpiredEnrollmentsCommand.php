@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\DB;
  * 日次 00:00 起動。exam_date IS NULL の Enrollment は対象外(目標受験日未設定は任意のため)。
  * 各遷移ごとに EnrollmentStatusLog(changed_by=null = システム自動 / reason='試験日超過による自動失敗') を記録し、
  * 当該 Enrollment が受講生のデフォルト資格だった場合は他の learning|passed 残存件数で自動振替 / NULL リセット。
+ *
+ * 抽出条件の status を処理中に更新するため、分割は chunkById(主キーカーソル)を使う。
+ * オフセット分割(chunk)では処理済み件数分だけ取得位置がずれ、後続チャンクを取りこぼす。
  */
 class FailExpiredEnrollmentsCommand extends Command
 {
@@ -35,8 +38,7 @@ class FailExpiredEnrollmentsCommand extends Command
             ->where('status', EnrollmentStatus::Learning->value)
             ->whereNotNull('exam_date')
             ->whereDate('exam_date', '<', now()->toDateString())
-            ->orderBy('id')
-            ->chunk(100, function ($enrollments) use ($statusChanger, $defaultEnrollmentService, &$count): void {
+            ->chunkById(100, function ($enrollments) use ($statusChanger, $defaultEnrollmentService, &$count): void {
                 foreach ($enrollments as $enrollment) {
                     DB::transaction(function () use ($enrollment, $statusChanger, $defaultEnrollmentService) {
                         $enrollment->update(['status' => EnrollmentStatus::Failed->value]);

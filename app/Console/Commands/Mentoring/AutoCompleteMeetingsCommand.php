@@ -14,6 +14,9 @@ use Illuminate\Console\Command;
  *
  * 15 分間隔で起動し、終了時刻超過の予約を即時に履歴側へ送り出す(運用上のリアルタイム性確保)。
  * AutoCompleteMeetingAction が行レベルロック + 状態再確認で二重遷移を防ぐ(冪等)。
+ *
+ * 抽出条件の status を処理中に更新するため、分割は chunkById(主キーカーソル)を使う。
+ * オフセット分割(chunk)では処理済み件数分だけ取得位置がずれ、後続チャンクを取りこぼす。
  */
 class AutoCompleteMeetingsCommand extends Command
 {
@@ -28,8 +31,7 @@ class AutoCompleteMeetingsCommand extends Command
         Meeting::query()
             ->where('status', MeetingStatus::Reserved->value)
             ->where('scheduled_at', '<', now()->subMinutes(60))
-            ->orderBy('id')
-            ->chunk(100, function ($meetings) use ($action, &$count): void {
+            ->chunkById(100, function ($meetings) use ($action, &$count): void {
                 foreach ($meetings as $meeting) {
                     $action($meeting);
                     $count++;
