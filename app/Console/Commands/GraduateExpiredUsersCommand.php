@@ -17,6 +17,9 @@ use Illuminate\Console\Command;
  *
  * 招待期限切れ Schedule Command（invitations:expire、00:30）とロック競合しないよう
  * 開始時刻をずらし、withoutOverlapping(5) で多重起動も防ぐ。
+ *
+ * 抽出条件の status を処理中に更新するため、分割は chunkById(主キーカーソル)を使う。
+ * オフセット分割(chunk)では処理済み件数分だけ取得位置がずれ、後続チャンクを取りこぼす。
  */
 class GraduateExpiredUsersCommand extends Command
 {
@@ -33,8 +36,7 @@ class GraduateExpiredUsersCommand extends Command
             ->where('status', UserStatus::InProgress->value)
             ->whereNotNull('plan_expires_at')
             ->where('plan_expires_at', '<', now())
-            ->orderBy('id')
-            ->chunk(100, function ($users) use ($action, &$count): void {
+            ->chunkById(100, function ($users) use ($action, &$count): void {
                 foreach ($users as $user) {
                     $action($user);
                     $count++;
