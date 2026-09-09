@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Models\ChatMessage;
 use App\Models\ChatRoom;
 use App\Models\User;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -25,7 +26,7 @@ class ChatMessageFactory extends Factory
         return [
             'chat_room_id' => ChatRoom::factory(),
             'sender_user_id' => User::factory(),
-            'body' => fake()->realText(120),
+            'body' => JaText::chatMessage(),
         ];
     }
 

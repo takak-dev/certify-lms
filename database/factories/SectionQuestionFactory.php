@@ -9,6 +9,7 @@ use App\Models\Certification;
 use App\Models\QuestionCategory;
 use App\Models\Section;
 use App\Models\SectionQuestion;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -34,8 +35,8 @@ class SectionQuestionFactory extends Factory
                     ->create()
                     ->id;
             },
-            'body' => fake()->sentence().' 何か?',
-            'explanation' => fake()->paragraph(),
+            'body' => JaText::questionBody(),
+            'explanation' => JaText::explanation(),
             'order' => 0,
             'status' => ContentStatus::Draft->value,
             'published_at' => null,

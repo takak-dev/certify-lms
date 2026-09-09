@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\ContentStatus;
 use App\Models\Chapter;
 use App\Models\Part;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,7 +21,7 @@ class ChapterFactory extends Factory
     {
         return [
             'part_id' => Part::factory(),
-            'title' => '第'.fake()->numberBetween(1, 20).'章 '.fake()->word(),
+            'title' => '第'.fake()->numberBetween(1, 20).'章 '.JaText::topic(),
             'description' => fake()->optional()->sentence(),
             'order' => fake()->numberBetween(1, 99),
             'status' => ContentStatus::Draft->value,

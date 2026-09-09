@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Models\Meeting;
 use App\Models\MeetingMemo;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -22,7 +23,7 @@ class MeetingMemoFactory extends Factory
     {
         return [
             'meeting_id' => Meeting::factory(),
-            'body' => fake()->paragraphs(2, true),
+            'body' => JaText::paragraphs(2),
         ];
     }
 

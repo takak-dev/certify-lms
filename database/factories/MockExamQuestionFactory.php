@@ -8,6 +8,7 @@ use App\Models\Certification;
 use App\Models\MockExam;
 use App\Models\MockExamQuestion;
 use App\Models\QuestionCategory;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -36,8 +37,8 @@ class MockExamQuestionFactory extends Factory
                     ->create()
                     ->id;
             },
-            'body' => fake()->sentence().' 何か?',
-            'explanation' => fake()->paragraph(),
+            'body' => JaText::questionBody(),
+            'explanation' => JaText::explanation(),
             'order' => 0,
         ];
     }
