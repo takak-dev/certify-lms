@@ -41,6 +41,7 @@ class QaReply extends Model
      */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        // 退会(論理削除)後も氏名を表示し続ける(decisions #67)。手本: Invitation.php:50 / Meeting.php:84
+        return $this->belongsTo(User::class)->withTrashed();
     }
 }

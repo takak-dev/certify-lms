@@ -25,6 +25,8 @@ use App\Http\Controllers\MockExamQuestionController;
 use App\Http\Controllers\MockExamSessionController;
 use App\Http\Controllers\MockExamSessionMonitorController;
 use App\Http\Controllers\PartController;
+use App\Http\Controllers\QaReplyController;
+use App\Http\Controllers\QaThreadController;
 use App\Http\Controllers\QuestionCategoryController;
 use App\Http\Controllers\QuizHistoryController;
 use App\Http\Controllers\QuizStatsController;
@@ -472,6 +474,63 @@ Route::middleware(['auth', 'role:coach'])
 Route::middleware(['auth', 'role:student', 'active-learning'])->prefix('meeting-quota')->name('meeting-quota.')->group(function () {
     // 面談回数履歴
     Route::get('history', [MeetingQuotaHistoryController::class, 'index'])->name('history');
+});
+
+// ============================================================
+// 受講生・コーチ共有 — 質問掲示板(公開)
+// ============================================================
+// 原典「受講中の受講生・コーチのみアクセスできる」に従い active-learning を付ける。
+// 管理者は本グループに含めない(モデレーションは admin.qa-board.* を使う)。
+Route::middleware(['auth', 'role:student,coach', 'active-learning'])->group(function () {
+    Route::get('qa-board', [QaThreadController::class, 'index'])
+        ->name('qa-board.index');
+    // 投稿は受講生のみ(QaThreadPolicy::create で判定する)
+    Route::get('qa-board/create', [QaThreadController::class, 'create'])
+        ->name('qa-board.create');
+    Route::post('qa-board', [QaThreadController::class, 'store'])
+        ->name('qa-board.store');
+    Route::get('qa-board/{thread}', [QaThreadController::class, 'show'])
+        ->name('qa-board.show');
+    // 編集は投稿者本人のみ。資格は変更できない(decisions #65)
+    Route::get('qa-board/{thread}/edit', [QaThreadController::class, 'edit'])
+        ->name('qa-board.edit');
+    Route::patch('qa-board/{thread}', [QaThreadController::class, 'update'])
+        ->name('qa-board.update');
+    // 削除は投稿者本人のみ。回答が付いていれば DestroyAction が 409(decisions #37)
+    Route::delete('qa-board/{thread}', [QaThreadController::class, 'destroy'])
+        ->name('qa-board.destroy');
+    // 解決マークの切替。投稿者本人のみ(QaThreadPolicy::resolve / unresolve)
+    Route::post('qa-board/{thread}/resolve', [QaThreadController::class, 'resolve'])
+        ->name('qa-board.resolve');
+    Route::post('qa-board/{thread}/unresolve', [QaThreadController::class, 'unresolve'])
+        ->name('qa-board.unresolve');
+    // 回答の投稿。管理者は QaReplyPolicy::create で弾く
+    Route::post('qa-board/{thread}/replies', [QaReplyController::class, 'store'])
+        ->name('qa-board.replies.store');
+    // 回答の編集・削除は投稿者本人のみ(QaReplyPolicy::update / delete)
+    Route::get('qa-board/{thread}/replies/{reply}/edit', [QaReplyController::class, 'edit'])
+        ->name('qa-board.replies.edit');
+    Route::patch('qa-board/{thread}/replies/{reply}', [QaReplyController::class, 'update'])
+        ->name('qa-board.replies.update');
+    Route::delete('qa-board/{thread}/replies/{reply}', [QaReplyController::class, 'destroy'])
+        ->name('qa-board.replies.destroy');
+});
+
+// ============================================================
+// 管理者専用 — 質問掲示板モデレーション
+// ============================================================
+// 公開停止中の資格を含む全スレッドを横断閲覧し、不適切な投稿を削除する。
+// 画面は公開側と同じ Blade を共用し、`request()->routeIs('admin.*')` で切り替わる。
+// active-learning は付けない(管理者は受講中の概念を持たない。既存の admin ルート群と同じ)。
+Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
+    Route::get('qa-board', [QaThreadController::class, 'index'])
+        ->name('admin.qa-board.index');
+    Route::get('qa-board/{thread}', [QaThreadController::class, 'show'])
+        ->name('admin.qa-board.show');
+    Route::delete('qa-board/{thread}', [QaThreadController::class, 'destroy'])
+        ->name('admin.qa-board.destroy');
+    Route::delete('qa-board/{thread}/replies/{reply}', [QaReplyController::class, 'destroy'])
+        ->name('admin.qa-board.replies.destroy');
 });
 
 // ============================================================

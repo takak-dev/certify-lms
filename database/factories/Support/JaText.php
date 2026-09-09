@@ -87,6 +87,33 @@ final class JaText
         '理解が進んでいる単元と不安が残る単元を切り分けました。次回は後者を重点的に扱います。',
     ];
 
+    /** 質問掲示板のスレッドタイトル(骨格。%s に TOPICS を差し込む) */
+    private const QA_TITLE_FORMATS = [
+        '%sの学習でつまずいています',
+        '%sについて質問です',
+        '%sの理解が曖昧なままです',
+        '%sの進め方を教えてください',
+        '%sで参考になる考え方はありますか',
+    ];
+
+    /** 質問掲示板のスレッド本文 */
+    private const QA_BODIES = [
+        '教材を読み進めていますが、用語の違いが整理できず先に進めなくなりました。押さえるべき観点を教えていただけますか。',
+        '演習問題は解けるのですが、応用問題になると手が止まります。考え方の順序を知りたいです。',
+        '実務での使いどころが想像できず、暗記になってしまっています。具体例があると助かります。',
+        '過去問を解いたところ、同じ論点で繰り返し間違えていました。復習の進め方に迷っています。',
+        '解説を読んでも納得できない箇所があります。前提となる知識が抜けているのかもしれません。',
+    ];
+
+    /** 質問掲示板の回答本文 */
+    private const QA_REPLIES = [
+        'まずは用語を1つずつ図に書き出して、関係を線で結んでみてください。頭の中だけで整理しようとすると混乱しやすい箇所です。',
+        '同じところでつまずきました。教材の該当章を読み直したうえで、演習を3問だけ解き直すと定着しました。',
+        '結論から覚えるのではなく、なぜその手順になるのかを1文で言えるようにすると応用が利きます。',
+        '実務では前提条件によって選ぶ手段が変わります。まず条件を書き出してから比較すると判断しやすいです。',
+        '参考になるかは分かりませんが、私は間違えた問題だけをまとめたノートを作って繰り返し見ています。',
+    ];
+
     /** 画像ファイル名(拡張子を除く)。ファイル名は ASCII に保つ */
     private const IMAGE_NAMES = [
         'er-diagram', 'network-topology', 'sequence-flow', 'screen-layout', 'class-diagram',
@@ -161,6 +188,24 @@ final class JaText
     public static function meetingMemo(): string
     {
         return fake()->randomElement(self::MEETING_MEMOS);
+    }
+
+    /** 質問掲示板のスレッドタイトル */
+    public static function qaTitle(): string
+    {
+        return sprintf(fake()->randomElement(self::QA_TITLE_FORMATS), self::topic());
+    }
+
+    /** 質問掲示板のスレッド本文 */
+    public static function qaBody(): string
+    {
+        return fake()->randomElement(self::QA_BODIES);
+    }
+
+    /** 質問掲示板の回答本文 */
+    public static function qaReply(): string
+    {
+        return fake()->randomElement(self::QA_REPLIES);
     }
 
     /** 画像ファイル名（拡張子なし・ASCII） */
