@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\PlanStatus;
 use App\Models\Plan;
 use App\Models\User;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -31,7 +32,7 @@ class PlanFactory extends Factory
                 'スタンダードプラン',
                 'アドバンストプラン',
             ]).' '.$quota.' 回',
-            'description' => fake()->paragraph(),
+            'description' => JaText::paragraph(),
             'duration_days' => $duration,
             'default_meeting_quota' => $quota,
             'status' => PlanStatus::Draft->value,

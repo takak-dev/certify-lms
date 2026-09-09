@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Models\Section;
 use App\Models\SectionImage;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -23,7 +24,7 @@ class SectionImageFactory extends Factory
         return [
             'section_id' => Section::factory(),
             'path' => "section-images/{$ulid}.png",
-            'original_filename' => fake()->word().'.png',
+            'original_filename' => JaText::imageName().'.png',
             'mime_type' => 'image/png',
             'size_bytes' => fake()->numberBetween(1024, 2_000_000),
         ];

@@ -9,6 +9,7 @@ use App\Enums\CertificationStatus;
 use App\Models\Certification;
 use App\Models\CertificationCategory;
 use App\Models\User;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -31,7 +32,7 @@ class CertificationFactory extends Factory
             ]),
             'category_id' => CertificationCategory::factory(),
             'difficulty' => fake()->randomElement(CertificationDifficulty::cases())->value,
-            'description' => fake()->paragraph(),
+            'description' => JaText::paragraph(),
             'status' => CertificationStatus::Draft->value,
             'created_by_user_id' => User::factory()->admin(),
             'updated_by_user_id' => function (array $attributes) {

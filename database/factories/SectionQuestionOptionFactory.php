@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Models\SectionQuestion;
 use App\Models\SectionQuestionOption;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -19,7 +20,7 @@ class SectionQuestionOptionFactory extends Factory
     {
         return [
             'section_question_id' => SectionQuestion::factory(),
-            'body' => fake()->sentence(4),
+            'body' => JaText::optionBody(),
             'is_correct' => false,
             'order' => fake()->numberBetween(0, 5),
         ];

@@ -9,6 +9,7 @@ use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\User;
 use Carbon\Carbon;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -33,7 +34,7 @@ class MeetingFactory extends Factory
             'student_id' => $student,
             'scheduled_at' => $this->roundedFuture(days: fake()->numberBetween(1, 14), hour: fake()->numberBetween(9, 20)),
             'status' => MeetingStatus::Reserved->value,
-            'topic' => fake()->sentence(8),
+            'topic' => JaText::meetingTopic(),
             'meeting_url_snapshot' => 'https://meet.example.com/'.fake()->lexify('??????'),
             'canceled_by_user_id' => null,
             'canceled_at' => null,

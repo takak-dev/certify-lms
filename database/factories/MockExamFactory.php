@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Models\Certification;
 use App\Models\MockExam;
 use App\Models\User;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -23,8 +24,8 @@ class MockExamFactory extends Factory
     {
         return [
             'certification_id' => Certification::factory()->published(),
-            'title' => fake()->sentence(3),
-            'description' => fake()->paragraph(),
+            'title' => JaText::title(),
+            'description' => JaText::paragraph(),
             'order' => 0,
             'passing_score' => 60,
             'is_published' => false,

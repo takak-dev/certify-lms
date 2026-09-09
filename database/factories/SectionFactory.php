@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\ContentStatus;
 use App\Models\Chapter;
 use App\Models\Section;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,9 +21,9 @@ class SectionFactory extends Factory
     {
         return [
             'chapter_id' => Chapter::factory(),
-            'title' => fake()->sentence(3),
+            'title' => JaText::title(),
             'description' => fake()->optional()->sentence(),
-            'body' => '## '.fake()->sentence()."\n\n".fake()->paragraph()."\n\n```\n".fake()->word()."\n```",
+            'body' => '## '.JaText::title()."\n\n".JaText::paragraph()."\n\n```\n".JaText::topic()."\n```",
             'order' => fake()->numberBetween(1, 99),
             'status' => ContentStatus::Draft->value,
             'published_at' => null,

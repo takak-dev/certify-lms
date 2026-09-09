@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\MeetingPackStatus;
 use App\Models\MeetingPack;
 use App\Models\User;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -23,7 +24,7 @@ class MeetingPackFactory extends Factory
 
         return [
             'name' => $count.' 回パック',
-            'description' => fake()->paragraph(),
+            'description' => JaText::paragraph(),
             'meeting_count' => $count,
             'price' => $price,
             'stripe_price_id' => null,
