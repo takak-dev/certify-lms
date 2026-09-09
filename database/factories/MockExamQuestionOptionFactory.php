@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Models\MockExamQuestion;
 use App\Models\MockExamQuestionOption;
+use Database\Factories\Support\JaText;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -22,7 +23,7 @@ class MockExamQuestionOptionFactory extends Factory
     {
         return [
             'mock_exam_question_id' => MockExamQuestion::factory(),
-            'body' => fake()->sentence(4),
+            'body' => JaText::optionBody(),
             'is_correct' => false,
             'order' => fake()->numberBetween(0, 5),
         ];
