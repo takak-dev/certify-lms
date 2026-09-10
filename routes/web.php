@@ -24,6 +24,7 @@ use App\Http\Controllers\MockExamController;
 use App\Http\Controllers\MockExamQuestionController;
 use App\Http\Controllers\MockExamSessionController;
 use App\Http\Controllers\MockExamSessionMonitorController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PartController;
 use App\Http\Controllers\QaReplyController;
 use App\Http\Controllers\QaThreadController;
@@ -531,6 +532,25 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.qa-board.destroy');
     Route::delete('qa-board/{thread}/replies/{reply}', [QaReplyController::class, 'destroy'])
         ->name('admin.qa-board.replies.destroy');
+});
+
+// ============================================================
+// 全ロール共通 — 通知(一覧)
+// ============================================================
+// 原典の HTTP 表は 3 本とも認可欄が「認証ユーザー」。role: も active-learning も付けない。
+// ・修了者も過去に受け取った通知を見られる必要がある。EnsureActiveLearning の PHPDoc(:16)が
+//   「プロフィール / 修了証 PDF DL / 通知一覧は引き続き利用可能」と通知一覧を名指しで除外している
+// ・管理者宛の通知は発火しない(チケットのスコープ外)ため中身は空になるが、
+//   サイドバー(sidebar-admin.blade.php:22)に項目があるため画面自体は開ける
+Route::middleware('auth')->group(function () {
+    Route::get('notifications', [NotificationController::class, 'index'])
+        ->name('notifications.index');
+    // 一覧の行クリックがこれを叩く。既読化したあと、その通知が指す業務画面へリダイレクトする。
+    // 他人の通知は NotificationPolicy::markAsRead が 403 で弾く
+    Route::post('notifications/{notification}/read', [NotificationController::class, 'markAsRead'])
+        ->name('notifications.markAsRead');
+    Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead'])
+        ->name('notifications.markAllAsRead');
 });
 
 // ============================================================

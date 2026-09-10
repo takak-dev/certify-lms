@@ -31,6 +31,8 @@ class DatabaseSeeder extends Seeder
             ChatSeeder::class,
             QaBoardSeeder::class,
             CertificateSeeder::class,
+            // 通知は Q&A 回答 / チャット / 面談を素材にするため、それらの後に流す
+            NotificationSeeder::class,
         ]);
     }
 }

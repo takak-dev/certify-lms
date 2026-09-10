@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\UseCases\Notification;
+
+use Illuminate\Notifications\DatabaseNotification;
+
+/**
+ * 通知を 1 件既読にし、遷移先の URL を返すユースケース。
+ *
+ * 一覧の行全体が「既読化フォームの送信ボタン」になっているため
+ * (resources/views/notifications/_partials/notification-row.blade.php:28-35)、
+ * クリック = POST → 既読化 → 業務画面へリダイレクト という動線になる。
+ * 遷移先は通知データの `url` に持たせる(decisions #42)。
+ */
+final class MarkAsReadAction
+{
+    public function __invoke(DatabaseNotification $notification): string
+    {
+        // markAsRead() は Laravel が用意しているメソッド。read_at が null のときだけ書き込むので、
+        // 既読の通知をもう一度クリックしても最初に読んだ時刻が上書きされない
+        // (vendor/laravel/framework/src/Illuminate/Notifications/DatabaseNotification.php:63-68)
+        $notification->markAsRead();
+
+        $data = is_array($notification->data) ? $notification->data : [];
+        $url = $data['url'] ?? null;
+
+        // 遷移先はアプリ内の相対パスだけを許す。
+        // `http://…` や `//example.com` を弾くのは、通知を外部サイトへの踏み台にしないため
+        // (オープンリダイレクト。`//` で始まる URL はブラウザが外部ホストとして解釈する)。
+        if (! is_string($url) || ! str_starts_with($url, '/') || str_starts_with($url, '//')) {
+            // `url` を持たない通知(運営お知らせ)は通知詳細ページへ送る取り決めだが(decisions #42)、
+            // 詳細ページのルートは S-B-08 で追加する(原典の HTTP 表は 3 本のみ)。
+            // 本チケットで作る 4 種類はいずれも url を持つため、通常ここは通らない
+            return route('notifications.index');
+        }
+
+        return $url;
+    }
+}
