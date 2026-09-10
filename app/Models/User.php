@@ -171,6 +171,25 @@ class User extends Authenticatable
     }
 
     /**
+     * 通知(アプリ内・メール)を受け取ってよいユーザーかを判定する。
+     *
+     * 条件は 2 つだけ(decisions #76)。
+     * - 状態が受講中(in_progress)であること。招待中 / 卒業 / 退会済には配信しない
+     * - 管理者でないこと。原典のスコープ外に「管理者向けの通知(本 MVP では扱わない)」とある
+     *
+     * ⚠️ 管理者の状態も in_progress で登録されている(database/seeders/UserSeeder.php:49-59)。
+     *    状態だけでは除外できないため、ロールも併せて見る必要がある。
+     *
+     * 判定をここに集約しているのは、配信対象が今後変わりうるルールだから。
+     * 実際 decisions #34 は面談で修了者の扱いが変わり、#35 に副作用まで記録されている。
+     */
+    public function canReceiveNotifications(): bool
+    {
+        return $this->status === UserStatus::InProgress
+            && $this->role !== UserRole::Admin;
+    }
+
+    /**
      * @return BelongsTo<Plan, $this>
      */
     public function plan(): BelongsTo

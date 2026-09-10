@@ -20,6 +20,8 @@ use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\MeetingMemo;
 use App\Models\User;
+use App\Notifications\MeetingCanceledNotification;
+use App\Notifications\MeetingReservedNotification;
 use App\Services\CoachMeetingLoadService;
 use App\Services\MeetingAvailabilityService;
 use App\Services\MeetingQuotaService;
@@ -213,7 +215,17 @@ class MeetingController extends Controller
             $transaction = ($consumeAction)($student, $meeting->id);
             $meeting->update(['meeting_quota_transaction_id' => $transaction->id]);
 
-            return $meeting->fresh();
+            $fresh = $meeting->fresh();
+
+            // 予約が確定したら担当コーチへ通知する(S-B-04)。予約した受講生本人には送らない——
+            // 予約画面が「予約完了後、コーチに通知メールが届きます」と明記している
+            // (meeting/create.blade.php:158。decisions #77)。
+            // 通知は afterCommit に置く。この先で例外が出て予約が巻き戻ったときに通知だけ残さないため。
+            DB::afterCommit(function () use ($fresh, $coach): void {
+                $coach->notify(new MeetingReservedNotification($fresh));
+            });
+
+            return $fresh;
         });
 
         return redirect()
@@ -256,6 +268,17 @@ class MeetingController extends Controller
             // 上の Reserved ガードと同じロック・同じトランザクション内に置くことで、二重返却と
             // 「status だけ canceled で返却されていない」状態の両方を防ぐ。
             ($refundAction)($locked->student, $locked->id);
+
+            // キャンセルした本人ではなく「相手方」へ通知する(S-B-04)。
+            // キャンセル確認画面が「相手方に通知メールが届きます」と明記している
+            // (meeting/_modals/cancel-confirm.blade.php:21。decisions #77)。
+            $counterpart = $actor->id === $locked->student_id
+                ? $locked->coach
+                : $locked->student;
+
+            DB::afterCommit(function () use ($locked, $counterpart): void {
+                $counterpart?->notify(new MeetingCanceledNotification($locked));
+            });
         });
 
         return redirect()
