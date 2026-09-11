@@ -57,17 +57,18 @@ class MarkAsReadTest extends TestCase
         $this->assertNotNull($notification->fresh()->read_at);
     }
 
-    public function test_notification_without_url_falls_back_to_the_list(): void
+    public function test_notification_without_url_falls_back_to_the_detail_page(): void
     {
-        // Arrange: 遷移先を持たない通知（運営お知らせ = S-B-08 が作る想定）
+        // Arrange: 遷移先の業務画面を持たない通知（運営お知らせ = S-B-08 が配信するもの）
         $me = User::factory()->student()->inProgress()->create();
         $notification = $this->makeNotification($me, url: null);
 
         // Act
         $response = $this->actingAs($me)->post(route('notifications.markAsRead', $notification));
 
-        // Assert: 行き先が無いので一覧へ戻す。既読化そのものは走る
-        $response->assertRedirect(route('notifications.index'));
+        // Assert: 本文の全文を読む通知詳細ページへ送る（decisions #42 / #83）。
+        // S-B-04 の時点では詳細ページのルートが無く一覧へ戻していたが、S-B-08 で本来の行き先になった
+        $response->assertRedirect(route('notifications.show', $notification));
         $this->assertNotNull($notification->fresh()->read_at);
     }
 
@@ -89,8 +90,9 @@ class MarkAsReadTest extends TestCase
             // Act
             $response = $this->actingAs($me)->post(route('notifications.markAsRead', $notification));
 
-            // Assert: 外部へは飛ばさず一覧へ戻す
-            $response->assertRedirect(route('notifications.index'));
+            // Assert: 外部へは飛ばさず、url を持たない通知と同じ扱いで詳細ページへ送る。
+            // 「アプリ内の相対パス以外は採用しない」という判定の結果なので、行き先は #83 のフォールバックになる
+            $response->assertRedirect(route('notifications.show', $notification));
         }
     }
 

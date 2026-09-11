@@ -114,6 +114,41 @@ final class JaText
         '参考になるかは分かりませんが、私は間違えた問題だけをまとめたノートを作って繰り返し見ています。',
     ];
 
+    /**
+     * 運営お知らせのタイトルと本文。**必ず対で使う**。
+     *
+     * 他のプールと違い title / body を別々の配列にしていないのは、
+     * 独立に選ぶと「システムメンテナンスのお知らせ」の本文がキャンペーン告知になるため。
+     * 見出しと中身が食い違った文面は証跡のスクリーンショットにそのまま載る。
+     * (同じ考え方: QaThreadFactory::resolved() が status と resolved_at を1つの state にまとめている)
+     *
+     * 用途は原典の3種類(メンテナンス予告 / 重要更新 / 学習キャンペーン告知)に運用連絡2件を足したもの。
+     *
+     * @var list<array{title: string, body: string}>
+     */
+    private const ANNOUNCEMENTS = [
+        [
+            'title' => 'システムメンテナンス実施のお知らせ',
+            'body' => "下記の日程でシステムメンテナンスを実施します。\n\n作業中は学習画面と面談予約をご利用いただけません。学習の予定に余裕をもってお進めください。",
+        ],
+        [
+            'title' => '教材改訂にともなう重要なお知らせ',
+            'body' => "試験範囲の改訂にともない、対象資格の教材を更新しました。\n\n更新箇所は各章の冒頭に記載しています。学習中の方は該当章をあらためてご確認ください。",
+        ],
+        [
+            'title' => '学習キャンペーン開催のお知らせ',
+            'body' => "今月末まで、模試の受け放題キャンペーンを実施します。\n\n期間中は回数の制限なく模試に挑戦できます。弱点の洗い出しにご活用ください。",
+        ],
+        [
+            'title' => '面談予約枠の追加について',
+            'body' => "面談のご希望が増えているため、平日夜間の予約枠を追加しました。\n\n予約画面から空き状況をご確認いただけます。",
+        ],
+        [
+            'title' => '一部機能の不具合と復旧のご報告',
+            'body' => "学習時間が正しく記録されない不具合が発生していました。\n\n現在は復旧しています。ご迷惑をおかけし申し訳ありませんでした。",
+        ],
+    ];
+
     /** 画像ファイル名(拡張子を除く)。ファイル名は ASCII に保つ */
     private const IMAGE_NAMES = [
         'er-diagram', 'network-topology', 'sequence-flow', 'screen-layout', 'class-diagram',
@@ -206,6 +241,16 @@ final class JaText
     public static function qaReply(): string
     {
         return fake()->randomElement(self::QA_REPLIES);
+    }
+
+    /**
+     * 運営お知らせの文面を1件返す。title と body が対になっている。
+     *
+     * @return array{title: string, body: string}
+     */
+    public static function announcement(): array
+    {
+        return fake()->randomElement(self::ANNOUNCEMENTS);
     }
 
     /** 画像ファイル名（拡張子なし・ASCII） */

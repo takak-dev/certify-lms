@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\CertificationCatalogController;
@@ -203,6 +204,13 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.enrollments.updateExamDate');
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
+
+    // お知らせ配信 — 配信は不可逆(再配信 / 編集 / 取消なし)。
+    // edit / update / destroy を作らないことで、UI からも API からも書き換えられなくする
+    // (原典「お知らせには編集 / 削除 / 再配信のルートを設けない」)。
+    Route::resource('announcements', AnnouncementController::class)
+        ->only(['index', 'create', 'store', 'show'])
+        ->names('admin.announcements');
 });
 
 // ============================================================
@@ -535,9 +543,10 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
 });
 
 // ============================================================
-// 全ロール共通 — 通知(一覧)
+// 全ロール共通 — 通知(一覧・詳細)
 // ============================================================
-// 原典の HTTP 表は 3 本とも認可欄が「認証ユーザー」。role: も active-learning も付けない。
+// S-B-04 原典の HTTP 表は 3 本とも認可欄が「認証ユーザー」。role: も active-learning も付けない。
+// 詳細(notifications.show)は S-B-08 で追加した 4 本目で、認可欄は同じ「認証ユーザー(自分宛のみ)」。
 // ・修了者も過去に受け取った通知を見られる必要がある。EnsureActiveLearning の PHPDoc(:16)が
 //   「プロフィール / 修了証 PDF DL / 通知一覧は引き続き利用可能」と通知一覧を名指しで除外している
 // ・管理者宛の通知は発火しない(チケットのスコープ外)ため中身は空になるが、
@@ -551,6 +560,10 @@ Route::middleware('auth')->group(function () {
         ->name('notifications.markAsRead');
     Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead'])
         ->name('notifications.markAllAsRead');
+    // 通知詳細(S-B-08 で追加)。遷移先の業務画面を持たない通知——運営お知らせ——の全文をここで読む。
+    // 開けるのは宛先本人だけ(NotificationPolicy::view)。ロールでは絞らない
+    Route::get('notifications/{notification}', [NotificationController::class, 'show'])
+        ->name('notifications.show');
 });
 
 // ============================================================
