@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Notifications;
 
+use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\ChatMessage;
 use App\Models\Meeting;
 use App\Models\QaReply;
 use App\Models\QaThread;
 use App\Models\User;
+use App\Notifications\AdminAnnouncementNotification;
 use App\Notifications\ChatMessageReceivedNotification;
 use App\Notifications\MeetingCanceledNotification;
 use App\Notifications\MeetingReservedNotification;
@@ -36,6 +38,10 @@ class NotificationDataTest extends TestCase
 
     /**
      * 画面が読むキー。notification-row.blade.php:9-12 と notifications/show.blade.php:13-15 が参照している。
+     *
+     * ⚠️ 運営お知らせ（admin_announcement）は `url` を持たない唯一の通知なので、この一括検査には混ぜない。
+     * 遷移先の業務画面が無いことがフォールバックの条件そのものになっている（decisions #83）。
+     * 専用の検査を下に置いてある。
      */
     private const REQUIRED_KEYS = ['notification_type', 'title', 'message', 'url'];
 
@@ -133,5 +139,49 @@ class NotificationDataTest extends TestCase
         // 面談以外は持たない（重複検査の対象外なので不要）
         $this->assertArrayNotHasKey('meeting_id', $all['qa_reply_received']->toDatabase($recipient));
         $this->assertArrayNotHasKey('meeting_id', $all['chat_message_received']->toDatabase($recipient));
+    }
+
+    /**
+     * 運営お知らせ（S-B-08）のデータ。他の 4 種類と約束が違うので単独で検査する。
+     *
+     * ① `body` を持つ：通知詳細ページが全文をここから読む（notifications/show.blade.php:15）
+     * ② `url` を持たない：遷移先の業務画面が無く、既読化のフォールバックで詳細ページへ送る
+     *    （MarkAsReadAction。ここに値を入れるとフォールバックが働かなくなる）
+     */
+    public function test_admin_announcement_carries_the_full_body_and_no_url(): void
+    {
+        // Arrange
+        $recipient = User::factory()->student()->inProgress()->create();
+        $announcement = Announcement::factory()->create([
+            'title' => '年末年始の運営休止について',
+            'body' => "12 月 29 日から 1 月 3 日まで休止します。\n\nご不便をおかけします。",
+        ]);
+
+        // Act
+        $data = (new AdminAnnouncementNotification($announcement))->toDatabase($recipient);
+
+        // Assert: 値は Enum を参照せず文字列リテラルで書く（画面が分岐している値そのものを固定するため）
+        $this->assertSame('admin_announcement', $data['notification_type']);
+        $this->assertSame('年末年始の運営休止について', $data['title']);
+        $this->assertSame($announcement->body, $data['body'], '詳細ページが読む body に本文全文が入っていない');
+        $this->assertArrayNotHasKey('url', $data, 'url があるとフォールバックが働かず、通知詳細ページへ行けない');
+    }
+
+    /** 一覧のプレビューは長い本文でも 1 行に収まる長さに切る */
+    public function test_admin_announcement_message_is_an_excerpt(): void
+    {
+        // Arrange
+        $recipient = User::factory()->student()->inProgress()->create();
+        $announcement = Announcement::factory()->create(['body' => str_repeat('あ', 300)]);
+
+        // Act
+        $data = (new AdminAnnouncementNotification($announcement))->toDatabase($recipient);
+
+        // Assert
+        $this->assertLessThan(
+            mb_strlen($announcement->body),
+            mb_strlen($data['message']),
+            '一覧のプレビューが本文全文のままになっている',
+        );
     }
 }

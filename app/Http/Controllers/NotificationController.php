@@ -39,6 +39,22 @@ class NotificationController extends Controller
     }
 
     /**
+     * 通知 1 件の全文を表示する(S-B-08 で追加)。
+     *
+     * 遷移先の業務画面を持たない通知——運営お知らせ——の本文をここで読む。
+     * Action を挟まないのは、ルートモデルバインディングで取れた 1 件を
+     * そのまま渡すだけで、組み立てる処理が無いため。
+     */
+    public function show(DatabaseNotification $notification): View
+    {
+        $this->authorize('view', $notification);
+
+        return view('notifications.show', [
+            'notification' => $notification,
+        ]);
+    }
+
+    /**
      * 通知を 1 件既読にし、その通知が指す業務画面へ送る。
      */
     public function markAsRead(DatabaseNotification $notification, MarkAsReadAction $action): RedirectResponse
