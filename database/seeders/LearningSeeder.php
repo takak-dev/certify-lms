@@ -68,14 +68,32 @@ final class LearningSeeder extends Seeder
             ->whereDoesntHave('user', fn ($q) => $q->where('email', 'student@certify-lms.test'))
             ->get();
 
+        if (Section::query()->doesntExist()) {
+            $this->command?->warn('LearningSeeder: 教材のセクションがありません。先に ContentSeeder を実行してください。');
+
+            return;
+        }
+
         foreach ($enrollments as $index => $enrollment) {
             $ratio = 0.3 + ($index % 5) * 0.1;
             $this->seedSectionProgresses($enrollment, $ratio);
+
+            // ⚠️ forSection() を省くと LearningSessionFactory の `Section::factory()` が連鎖し、
+            // セクション → 章 → 部 → 資格 まで丸ごと新規に作られる（下の sectionFor() のコメント参照）
+            $section = $this->sectionFor($enrollment);
+
+            // 教材が無い資格には学習記録を作らない。ContentSeeder が教材を作るのは 2 資格分だけで、
+            // 無理に他資格のセクションへ結びつけると「受講していない資格の教材を学習した記録」になる。
+            // 同ファイルの seedSectionProgresses() も、教材が無ければ 0 件で終わる（同じ扱い）
+            if ($section === null) {
+                continue;
+            }
 
             $closed = max(2, $index % 5);
             LearningSession::factory()
                 ->forUser($enrollment->user)
                 ->forEnrollment($enrollment)
+                ->forSection($section)
                 ->count($closed)
                 ->closed(1800)
                 ->create();
@@ -84,6 +102,7 @@ final class LearningSeeder extends Seeder
                 LearningSession::factory()
                     ->forUser($enrollment->user)
                     ->forEnrollment($enrollment)
+                    ->forSection($section)
                     ->autoClosed(3600)
                     ->create();
             }
@@ -92,6 +111,7 @@ final class LearningSeeder extends Seeder
                 LearningSession::factory()
                     ->forUser($enrollment->user)
                     ->forEnrollment($enrollment)
+                    ->forSection($section)
                     ->state([
                         'started_at' => now()->subHours(3),
                         'ended_at' => null,
@@ -101,6 +121,29 @@ final class LearningSeeder extends Seeder
                     ->create();
             }
         }
+    }
+
+    /**
+     * 学習セッションを結びつけるセクションを 1 つ選ぶ。
+     *
+     * ⭐ このメソッドがある理由。
+     * `LearningSession` の `section_id` を指定しないと Factory が `Section::factory()` を連鎖させ、
+     * セクション → 章 → 部 → **資格** まで新規に作る。その結果
+     * ①受講していない資格の教材を学習した記録ができる
+     * ②管理画面の資格セレクトに、受講登録が 1 件も無い資格が同名で並ぶ
+     *   （`CertificationFactory` が名前を 6 個の候補から選ぶため重複する）
+     * という、本番では起こりえないデータになる。実測で 24 件そうなっていた。
+     *
+     * 返すのは受講登録の資格の教材だけ。教材が無い資格では null を返し、呼び出し側が
+     * その受講登録の学習記録を作らない。他資格のセクションへ寄せると不一致が残るため。
+     * 絞り込みの形は同ファイルの `seedSectionProgresses()` に揃えた。
+     */
+    private function sectionFor(Enrollment $enrollment): ?Section
+    {
+        return Section::query()
+            ->whereHas('chapter.part', fn ($q) => $q->where('certification_id', $enrollment->certification_id))
+            ->inRandomOrder()
+            ->first();
     }
 
     private function seedSectionProgresses(Enrollment $enrollment, float $ratio): void
