@@ -58,19 +58,29 @@ class Meeting extends Model
     }
 
     /**
+     * 担当コーチ。退会(SoftDelete)後も氏名を表示し続けるため withTrashed で参照する
+     * (decisions #46 / #67 / #105)。canceledBy が同じ理由で既に withTrashed を付けている。
+     *
+     * ⚠️ これが無いと、退会したコーチの面談で `$meeting->coach` が null になり、
+     *    一覧・詳細の Blade(`{{ $meeting->coach->name }}`)が 500 になる。実測で確認済み。
+     *    coach_id は必須 + restrictOnDelete(物理削除を DB が拒否)なので、
+     *    withTrashed を付ければ当事者が取れないことは起こらない。
+     *
      * @return BelongsTo<User, $this>
      */
     public function coach(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'coach_id');
+        return $this->belongsTo(User::class, 'coach_id')->withTrashed();
     }
 
     /**
+     * 受講生。withTrashed の理由は coach() と同じ。
+     *
      * @return BelongsTo<User, $this>
      */
     public function student(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'student_id');
+        return $this->belongsTo(User::class, 'student_id')->withTrashed();
     }
 
     /**

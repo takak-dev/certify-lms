@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Notifications;
 
+use App\Enums\MeetingReminderWindow;
 use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\ChatMessage;
@@ -14,6 +15,7 @@ use App\Models\User;
 use App\Notifications\AdminAnnouncementNotification;
 use App\Notifications\ChatMessageReceivedNotification;
 use App\Notifications\MeetingCanceledNotification;
+use App\Notifications\MeetingReminderNotification;
 use App\Notifications\MeetingReservedNotification;
 use App\Notifications\QaReplyReceivedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -35,9 +37,9 @@ class NotificationMailTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 5 種類の通知を実データから組み立てて返す。
+     * 6 クラス 7 件の通知を実データから組み立てて返す。
      *
-     * @return array<string, Notification> 期待する件名 => 通知
+     * @return array<string, Notification> 期待する件名 => 通知（面談リマインダーだけ window ごとに件名が違うので 2 件）
      */
     private function makeAll(): array
     {
@@ -61,6 +63,10 @@ class NotificationMailTest extends TestCase
             '[Certify LMS] 受講生テスト さんからメッセージが届きました' => new ChatMessageReceivedNotification($message),
             '[Certify LMS] 面談が予約されました' => new MeetingReservedNotification($reserved),
             '[Certify LMS] 面談がキャンセルされました' => new MeetingCanceledNotification($canceled),
+            // 面談リマインダー(S-B-09)は window ごとに件名が変わるため 2 つとも載せる。
+            // 件名は「接頭辞 + 通知タイトル」の規約どおりか、各検査がまとめて確かめる
+            '[Certify LMS] 明日 面談の予定があります' => new MeetingReminderNotification($reserved, MeetingReminderWindow::Eve),
+            '[Certify LMS] まもなく面談が始まります' => new MeetingReminderNotification($reserved, MeetingReminderWindow::OneHourBefore),
             '[Certify LMS] システムメンテナンス実施のお知らせ' => new AdminAnnouncementNotification($announcement),
         ];
 

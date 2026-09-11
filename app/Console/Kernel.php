@@ -30,6 +30,22 @@ class Kernel extends ConsoleKernel
 
         // 終了時刻超過の reserved 面談を completed に自動遷移(15 分間隔でリアルタイム性確保)
         $schedule->command('meetings:auto-complete')->cron('*/15 * * * *')->withoutOverlapping(5);
+
+        // 面談リマインダー(前日分)。18:00 に翌日 1 日分をまとめて送る(decisions #50)。
+        // 深夜帯の他バッチとは重ならないが、下の 1 時間前分(*/5)と meetings:auto-complete(*/15)とは
+        // 18:00 ちょうどに同時に起動する。ロックが別なので競合はしない(理由は下のコメント)
+        $schedule->command('notifications:send-meeting-reminders --window=eve')
+            ->dailyAt('18:00')
+            ->withoutOverlapping(5);
+
+        // 面談リマインダー(開始 1 時間前分)。5 分間隔で 55〜65 分前の予約を巡回する(decisions #51)。
+        // ⚠️ withoutOverlapping のロックは「cron 式 + コマンド文字列」の sha1 で決まるため
+        //    (Scheduling/Event.php:996)、--window の値が違う上の 1 本とはロックを奪い合わない。
+        // ⚠️ ただし withoutOverlapping だけでは二重配信を防げない(5 分で期限切れ / 手動実行に無効)。
+        //    本体のロックはコマンド側の Cache::lock にある(decisions #107)
+        $schedule->command('notifications:send-meeting-reminders --window=one_hour_before')
+            ->cron('*/5 * * * *')
+            ->withoutOverlapping(5);
     }
 
     /**
