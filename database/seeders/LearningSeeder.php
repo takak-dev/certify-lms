@@ -23,7 +23,7 @@ use Illuminate\Database\Seeder;
  *    草グリッド) の濃淡確認用に、その手前 (13〜130 日前) を学習時間ばらつき + 一部空白でランダム投入する。
  *    学習時間目標も 1 件設定して `learning/hour-target` 画面の表示確認用素材とする。
  *
- * 2. 状態網羅 demo データ: learning 状態の全 demo Enrollment に対し、配下 Section の 30〜70% に
+ * 2. 状態網羅 demo データ: learning 状態の demo Enrollment のうち**教材が用意されている資格のもの**に対し、配下 Section の 30〜70% に
  *    SectionProgress を投入(進捗ゲージのバリエーション)+ 学習セッションを active / closed / autoClosed の
  *    3 状態で混在配置する。Schedule Command の auto-close 対象を再現するため `started_at` を 2 時間以上前にした
  *    open セッションを最低 1 件含める。
@@ -69,6 +69,17 @@ final class LearningSeeder extends Seeder
             ->get();
 
         foreach ($enrollments as $index => $enrollment) {
+            // ⚠️ forSection() を省くと LearningSessionFactory の `Section::factory()` が連鎖し、
+            // セクション → 章 → 部 → 資格 まで丸ごと新規に作られる（下の sectionFor() のコメント参照）。
+            // 教材が無い資格には学習記録を作らない——他資格のセクションへ寄せると
+            // 「受講していない資格の教材を学習した記録」になる。
+            // 前提データが無ければ飛ばす形は QuizAnsweringSeeder::seedForLearningEnrollments() に倣った
+            $section = $this->sectionFor($enrollment);
+
+            if ($section === null) {
+                continue;
+            }
+
             $ratio = 0.3 + ($index % 5) * 0.1;
             $this->seedSectionProgresses($enrollment, $ratio);
 
@@ -76,6 +87,7 @@ final class LearningSeeder extends Seeder
             LearningSession::factory()
                 ->forUser($enrollment->user)
                 ->forEnrollment($enrollment)
+                ->forSection($section)
                 ->count($closed)
                 ->closed(1800)
                 ->create();
@@ -84,6 +96,7 @@ final class LearningSeeder extends Seeder
                 LearningSession::factory()
                     ->forUser($enrollment->user)
                     ->forEnrollment($enrollment)
+                    ->forSection($section)
                     ->autoClosed(3600)
                     ->create();
             }
@@ -92,6 +105,7 @@ final class LearningSeeder extends Seeder
                 LearningSession::factory()
                     ->forUser($enrollment->user)
                     ->forEnrollment($enrollment)
+                    ->forSection($section)
                     ->state([
                         'started_at' => now()->subHours(3),
                         'ended_at' => null,
@@ -101,6 +115,34 @@ final class LearningSeeder extends Seeder
                     ->create();
             }
         }
+    }
+
+    /**
+     * 学習セッションを結びつけるセクションを 1 つ選ぶ。
+     *
+     * ⭐ このメソッドがある理由。
+     * `LearningSession` の `section_id` を指定しないと Factory が `Section::factory()` を連鎖させ、
+     * セクション → 章 → 部 → **資格** まで新規に作る。その結果
+     * ①受講していない資格の教材を学習した記録ができる
+     * ②管理画面の資格セレクトに、受講登録が 1 件も無い資格が同名で並ぶ
+     *   （`CertificationFactory` が名前を 6 個の候補から選ぶため重複する）
+     * という、本番では起こりえないデータになる。実測で 24 件そうなっていた。
+     *
+     * 返すのは受講登録の資格の教材だけ。教材が無い資格では null を返し、呼び出し側が
+     * その受講登録の学習記録を作らない。他資格のセクションへ寄せると不一致が残るため。
+     *
+     * 📌 公開状態（`Section::published()`）では絞っていない。同ファイルの
+     * `seedSectionProgresses()` / `seedDailyStreak()` / `seedCalendarHistory()` も絞っておらず、
+     * ここだけ付けると不揃いになるため、支給コードの既存挙動に合わせた。
+     * 4 箇所まとめて絞るかは初期データ全体の方針の話なので `docs/pending-list.md` に積んである。
+     * 絞り込みの形は `seedSectionProgresses()` に揃えた。
+     */
+    private function sectionFor(Enrollment $enrollment): ?Section
+    {
+        return Section::query()
+            ->whereHas('chapter.part', fn ($q) => $q->where('certification_id', $enrollment->certification_id))
+            ->inRandomOrder()
+            ->first();
     }
 
     private function seedSectionProgresses(Enrollment $enrollment, float $ratio): void
