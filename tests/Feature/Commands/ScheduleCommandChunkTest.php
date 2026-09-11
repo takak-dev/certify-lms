@@ -11,7 +11,10 @@ use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\Plan;
 use App\Models\User;
+use App\Notifications\MeetingReminderNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -21,6 +24,14 @@ use Tests\TestCase;
  * 処理済み件数分だけ取得位置がずれ、後続チャンクを取りこぼす。主キーカーソルベースの分割(chunkById)なら
  * 状態更新で対象から外れても取得位置がずれず全件を網羅できる。1 チャンクぶんを超える件数を投入し、
  * 生成した全件が期待どおり状態遷移することを表明する(取りこぼしが起きると遷移件数が不足して失敗する)。
+ *
+ * ⚠️ 4 本目の notifications:send-meeting-reminders(S-B-09)だけは理由が違う。
+ * あちらは meetings を 1 行も更新しないため、オフセット分割でも取りこぼしは起きない。
+ * それでも同じ形で検査するのは、**チャンクをまたいで Action が複数回呼ばれる**経路を通すため——
+ * 重複検査(SendRemindersAction::alreadySentKeys)はチャンクごとに 1 クエリを投げる作りで、
+ * 2 チャンク目以降を処理しない壊れ方は 1 チャンクに収まるテストでは気づけない。
+ * ⚠️ 検知できるのは「後続チャンクを処理しない」形だけ。重複検査のキーの作りが壊れた場合は
+ * 送りすぎる方向に倒れるため、このテストは落ちない(そちらは SendRemindersActionTest が見る)。
  */
 class ScheduleCommandChunkTest extends TestCase
 {
@@ -79,6 +90,36 @@ class ScheduleCommandChunkTest extends TestCase
         $this->assertSame(
             self::COUNT,
             Meeting::query()->where('status', MeetingStatus::Completed->value)->count(),
+        );
+    }
+
+    public function test_send_meeting_reminders_processes_all_records_across_chunks(): void
+    {
+        // Arrange: 前日 18:00 から見て「翌日」に 150 件の予約を置く。
+        //          当事者は使い回す(宛先ごとの内訳ではなく取りこぼしの有無を見るため)
+        $this->travelTo(Carbon::parse('2026-09-11 18:00:00'));
+        $coach = User::factory()->coach()->inProgress()->create();
+        $student = User::factory()->student()->inProgress()->create();
+        $enrollment = Enrollment::factory()->for($student, 'user')->learning()->create();
+
+        // 翌日 00:00 から 1 分ずつずらして 150 件(すべて eve の窓に入る)
+        $base = Carbon::parse('2026-09-12 00:00:00');
+        for ($i = 0; $i < self::COUNT; $i++) {
+            Meeting::factory()->reserved()
+                ->forCoach($coach)
+                ->forStudent($student)
+                ->forEnrollment($enrollment)
+                ->create(['scheduled_at' => $base->copy()->addMinutes($i)]);
+        }
+
+        // Act
+        $this->artisan('notifications:send-meeting-reminders', ['--window' => 'eve'])
+            ->assertExitCode(0);
+
+        // Assert: 150 件 × 当事者 2 名。2 チャンク目を取りこぼすと足りなくなる
+        $this->assertSame(
+            self::COUNT * 2,
+            DB::table('notifications')->where('type', MeetingReminderNotification::class)->count(),
         );
     }
 }

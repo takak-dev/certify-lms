@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Notifications;
 
+use App\Enums\MeetingReminderWindow;
 use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\ChatMessage;
@@ -14,6 +15,7 @@ use App\Models\User;
 use App\Notifications\AdminAnnouncementNotification;
 use App\Notifications\ChatMessageReceivedNotification;
 use App\Notifications\MeetingCanceledNotification;
+use App\Notifications\MeetingReminderNotification;
 use App\Notifications\MeetingReservedNotification;
 use App\Notifications\QaReplyReceivedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -46,7 +48,7 @@ class NotificationDataTest extends TestCase
     private const REQUIRED_KEYS = ['notification_type', 'title', 'message', 'url'];
 
     /**
-     * 4 種類の通知を実データから組み立てて返す。
+     * 5 種類の通知を実データから組み立てて返す。
      *
      * @return array<string, Notification> 期待する notification_type => 通知
      */
@@ -72,6 +74,10 @@ class NotificationDataTest extends TestCase
             'chat_message_received' => new ChatMessageReceivedNotification($message),
             'meeting_reserved' => new MeetingReservedNotification($reserved),
             'meeting_canceled' => new MeetingCanceledNotification($canceled),
+            // 面談リマインダー(S-B-09)。前日分と 1 時間前分で notification_type は同じなので、
+            // ここには前日分だけを載せる(この配列は notification_type をキーにしている)。
+            // window の違いは下の test_meeting_reminder_carries_the_window で検査する
+            'meeting_reminder' => new MeetingReminderNotification($reserved, MeetingReminderWindow::Eve),
         ];
     }
 
@@ -128,7 +134,7 @@ class NotificationDataTest extends TestCase
         $recipient = User::factory()->student()->inProgress()->create();
         $all = $this->makeAll();
 
-        foreach (['meeting_reserved', 'meeting_canceled'] as $type) {
+        foreach (['meeting_reserved', 'meeting_canceled', 'meeting_reminder'] as $type) {
             // Act
             $data = $all[$type]->toDatabase($recipient);
 
@@ -141,8 +147,39 @@ class NotificationDataTest extends TestCase
         $this->assertArrayNotHasKey('meeting_id', $all['chat_message_received']->toDatabase($recipient));
     }
 
+    public function test_meeting_reminder_carries_the_window_it_was_sent_for(): void
+    {
+        // Arrange: 重複検査は (meeting_id, reminder_window) の組で引く（decisions #104）。
+        //          meeting_id だけだと前日分を送った時点で 1 時間前分も送信済みと判定され、
+        //          直前リマインダーが永久に飛ばなくなる
+        $recipient = User::factory()->student()->inProgress()->create();
+        $meeting = Meeting::factory()->reserved()->create();
+
+        // 期待値は Enum ではなくリテラル側に置く（このファイルの方針。冒頭の docblock）。
+        // cases() を回して $window->value と突き合わせると、Enum の値を書き換えても通ってしまう
+        $expectations = [
+            'eve' => MeetingReminderWindow::Eve,
+            'one_hour_before' => MeetingReminderWindow::OneHourBefore,
+        ];
+        $this->assertCount(count($expectations), MeetingReminderWindow::cases(), 'window が増えたらこのテストも増やす');
+
+        foreach ($expectations as $expectedWindow => $window) {
+            // Act
+            $data = (new MeetingReminderNotification($meeting, $window))->toDatabase($recipient);
+
+            // Assert
+            $this->assertArrayHasKey('reminder_window', $data);
+            $this->assertSame($expectedWindow, $data['reminder_window']);
+        }
+
+        // 面談リマインダー以外は持たない
+        $all = $this->makeAll();
+        $this->assertArrayNotHasKey('reminder_window', $all['meeting_reserved']->toDatabase($recipient));
+        $this->assertArrayNotHasKey('reminder_window', $all['meeting_canceled']->toDatabase($recipient));
+    }
+
     /**
-     * 運営お知らせ（S-B-08）のデータ。他の 4 種類と約束が違うので単独で検査する。
+     * 運営お知らせ（S-B-08）のデータ。他の 5 種類と約束が違うので単独で検査する。
      *
      * ① `body` を持つ：通知詳細ページが全文をここから読む（notifications/show.blade.php:15）
      * ② `url` を持たない：遷移先の業務画面が無く、既読化のフォールバックで詳細ページへ送る
