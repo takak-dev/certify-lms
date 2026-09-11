@@ -329,4 +329,29 @@ class User extends Authenticatable
     {
         return $query->whereIn('status', [UserStatus::InProgress, UserStatus::Graduated]);
     }
+
+    /**
+     * 受講中(in_progress)の受講生だけに絞るスコープ。お知らせ配信の対象集合(S-B-08)。
+     *
+     * ⚠️ scopeActive() とは別物。あちらは卒業(graduated)も含み、ロールも見ない。
+     *
+     * canReceiveNotifications() でも代用できない。あちらは「受講中 かつ 管理者でない」なので
+     * コーチが通る。お知らせの配信対象は受講生のみ(原典のスコープ外「コーチ向けの配信」)。
+     *
+     * 配信フォームの候補一覧(AnnouncementController::create)と実際の配信集合
+     * (AnnouncementRecipientService)は、どちらもこのスコープを通る。
+     * ⚠️ 入力検証(Announcement/StoreRequest)だけは Rule::exists で同じ条件を書き写している
+     * (既存 FormRequest の書き方に揃えたため)。両者が同じ集合を指すことは
+     * StoreTest::test_user_target_validation_matches_the_recipient_scope が検査する。
+     *
+     * @param Builder<User> $query
+     *
+     * @return Builder<User>
+     */
+    public function scopeInProgressStudents(Builder $query): Builder
+    {
+        return $query
+            ->where('role', UserRole::Student)
+            ->where('status', UserStatus::InProgress);
+    }
 }

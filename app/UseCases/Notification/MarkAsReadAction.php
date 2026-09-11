@@ -30,10 +30,9 @@ final class MarkAsReadAction
         // `http://…` や `//example.com` を弾くのは、通知を外部サイトへの踏み台にしないため
         // (オープンリダイレクト。`//` で始まる URL はブラウザが外部ホストとして解釈する)。
         if (! is_string($url) || ! str_starts_with($url, '/') || str_starts_with($url, '//')) {
-            // `url` を持たない通知(運営お知らせ)は通知詳細ページへ送る取り決めだが(decisions #42)、
-            // 詳細ページのルートは S-B-08 で追加する(原典の HTTP 表は 3 本のみ)。
-            // 本チケットで作る 4 種類はいずれも url を持つため、通常ここは通らない
-            return route('notifications.index');
+            // `url` を持たない通知(運営お知らせ)は通知詳細ページで全文を読む(decisions #42 / #83)。
+            // S-B-04 の時点では詳細ページのルートが無く一覧へ戻していたが、S-B-08 で本来の行き先に差し替えた
+            return route('notifications.show', $notification);
         }
 
         return $url;

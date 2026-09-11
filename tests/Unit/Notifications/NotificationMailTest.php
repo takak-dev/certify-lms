@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Notifications;
 
+use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\ChatMessage;
 use App\Models\Meeting;
 use App\Models\QaReply;
 use App\Models\QaThread;
 use App\Models\User;
+use App\Notifications\AdminAnnouncementNotification;
 use App\Notifications\ChatMessageReceivedNotification;
 use App\Notifications\MeetingCanceledNotification;
 use App\Notifications\MeetingReservedNotification;
@@ -17,6 +19,7 @@ use App\Notifications\QaReplyReceivedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -32,7 +35,7 @@ class NotificationMailTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 4 種類の通知を実データから組み立てて返す。
+     * 5 種類の通知を実データから組み立てて返す。
      *
      * @return array<string, Notification> 期待する件名 => 通知
      */
@@ -50,13 +53,26 @@ class NotificationMailTest extends TestCase
             'canceled_by_user_id' => $student->id,
             'canceled_at' => now(),
         ]);
+        // 運営お知らせ（S-B-08）。件名は管理者が付けたタイトルがそのまま入る
+        $announcement = Announcement::factory()->create(['title' => 'システムメンテナンス実施のお知らせ']);
 
-        return [
+        $all = [
             '[Certify LMS] あなたの質問に回答が届きました' => new QaReplyReceivedNotification($reply),
             '[Certify LMS] 受講生テスト さんからメッセージが届きました' => new ChatMessageReceivedNotification($message),
             '[Certify LMS] 面談が予約されました' => new MeetingReservedNotification($reserved),
             '[Certify LMS] 面談がキャンセルされました' => new MeetingCanceledNotification($canceled),
+            '[Certify LMS] システムメンテナンス実施のお知らせ' => new AdminAnnouncementNotification($announcement),
         ];
+
+        // 実際の送信では Laravel が冒頭で通知 id を採番してから各チャネルを呼ぶ
+        // (vendor/laravel/framework/src/Illuminate/Notifications/NotificationSender.php:140-141)。
+        // toMail() を直接叩くこのテストでは採番が走らないため、同じ状態を自分で作る。
+        // 運営お知らせの action URL は通知詳細ページ(notifications.show)で、この id を使う
+        foreach ($all as $notification) {
+            $notification->id = (string) Str::uuid();
+        }
+
+        return $all;
     }
 
     public function test_every_notification_is_delivered_by_mail_as_well(): void
@@ -119,6 +135,29 @@ class NotificationMailTest extends TestCase
             $this->assertNotEmpty($mail->actionUrl, "{$subject} に action ボタンが無い");
             $this->assertStringStartsWith(config('app.url'), $mail->actionUrl, "{$subject} のリンクが絶対 URL でない");
         }
+    }
+
+    /**
+     * 運営お知らせの action ボタンは通知詳細ページを指す（decisions #95）。
+     *
+     * ⭐ このテストがある理由。当初「toMail() の時点では通知 ID が確定していない」と誤って判断し、
+     * 一覧へ送る実装にしていた。実際は Laravel が各チャネルの前に id を採番している
+     * (NotificationSender.php:140-141)。同じ誤りに戻っても、上の「絶対 URL か」の検査は
+     * 一覧でも通ってしまうため、行き先そのものをここで固定する。
+     */
+    public function test_admin_announcement_links_to_the_notification_detail_page(): void
+    {
+        // Arrange
+        $recipient = User::factory()->student()->inProgress()->create();
+        $announcement = Announcement::factory()->create();
+        $notification = new AdminAnnouncementNotification($announcement);
+        $notification->id = (string) Str::uuid();
+
+        // Act
+        $mail = $notification->toMail($recipient);
+
+        // Assert: 一覧ではなく詳細ページ。URL には自分の通知 ID が入る
+        $this->assertSame(route('notifications.show', $notification->id), $mail->actionUrl);
     }
 
     public function test_greeting_addresses_the_recipient_by_name(): void

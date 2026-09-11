@@ -33,6 +33,9 @@ class DatabaseSeeder extends Seeder
             CertificateSeeder::class,
             // 通知は Q&A 回答 / チャット / 面談を素材にするため、それらの後に流す
             NotificationSeeder::class,
+            // お知らせは受講登録から配信対象を決めるため EnrollmentSeeder の後。
+            // 通知行も自分で作るので NotificationSeeder には依存しない
+            AnnouncementSeeder::class,
         ]);
     }
 }
