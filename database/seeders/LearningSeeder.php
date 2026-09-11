@@ -23,7 +23,7 @@ use Illuminate\Database\Seeder;
  *    草グリッド) の濃淡確認用に、その手前 (13〜130 日前) を学習時間ばらつき + 一部空白でランダム投入する。
  *    学習時間目標も 1 件設定して `learning/hour-target` 画面の表示確認用素材とする。
  *
- * 2. 状態網羅 demo データ: learning 状態の全 demo Enrollment に対し、配下 Section の 30〜70% に
+ * 2. 状態網羅 demo データ: learning 状態の demo Enrollment のうち**教材が用意されている資格のもの**に対し、配下 Section の 30〜70% に
  *    SectionProgress を投入(進捗ゲージのバリエーション)+ 学習セッションを active / closed / autoClosed の
  *    3 状態で混在配置する。Schedule Command の auto-close 対象を再現するため `started_at` を 2 時間以上前にした
  *    open セッションを最低 1 件含める。
@@ -68,26 +68,20 @@ final class LearningSeeder extends Seeder
             ->whereDoesntHave('user', fn ($q) => $q->where('email', 'student@certify-lms.test'))
             ->get();
 
-        if (Section::query()->doesntExist()) {
-            $this->command?->warn('LearningSeeder: 教材のセクションがありません。先に ContentSeeder を実行してください。');
-
-            return;
-        }
-
         foreach ($enrollments as $index => $enrollment) {
-            $ratio = 0.3 + ($index % 5) * 0.1;
-            $this->seedSectionProgresses($enrollment, $ratio);
-
             // ⚠️ forSection() を省くと LearningSessionFactory の `Section::factory()` が連鎖し、
-            // セクション → 章 → 部 → 資格 まで丸ごと新規に作られる（下の sectionFor() のコメント参照）
+            // セクション → 章 → 部 → 資格 まで丸ごと新規に作られる（下の sectionFor() のコメント参照）。
+            // 教材が無い資格には学習記録を作らない——他資格のセクションへ寄せると
+            // 「受講していない資格の教材を学習した記録」になる。
+            // 前提データが無ければ飛ばす形は QuizAnsweringSeeder::seedForLearningEnrollments() に倣った
             $section = $this->sectionFor($enrollment);
 
-            // 教材が無い資格には学習記録を作らない。ContentSeeder が教材を作るのは 2 資格分だけで、
-            // 無理に他資格のセクションへ結びつけると「受講していない資格の教材を学習した記録」になる。
-            // 同ファイルの seedSectionProgresses() も、教材が無ければ 0 件で終わる（同じ扱い）
             if ($section === null) {
                 continue;
             }
+
+            $ratio = 0.3 + ($index % 5) * 0.1;
+            $this->seedSectionProgresses($enrollment, $ratio);
 
             $closed = max(2, $index % 5);
             LearningSession::factory()
@@ -136,7 +130,12 @@ final class LearningSeeder extends Seeder
      *
      * 返すのは受講登録の資格の教材だけ。教材が無い資格では null を返し、呼び出し側が
      * その受講登録の学習記録を作らない。他資格のセクションへ寄せると不一致が残るため。
-     * 絞り込みの形は同ファイルの `seedSectionProgresses()` に揃えた。
+     *
+     * 📌 公開状態（`Section::published()`）では絞っていない。同ファイルの
+     * `seedSectionProgresses()` / `seedDailyStreak()` / `seedCalendarHistory()` も絞っておらず、
+     * ここだけ付けると不揃いになるため、支給コードの既存挙動に合わせた。
+     * 4 箇所まとめて絞るかは初期データ全体の方針の話なので `docs/pending-list.md` に積んである。
+     * 絞り込みの形は `seedSectionProgresses()` に揃えた。
      */
     private function sectionFor(Enrollment $enrollment): ?Section
     {
