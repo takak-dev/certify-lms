@@ -120,5 +120,18 @@ return [
 
     'custom' => [],
 
-    'attributes' => [],
+    /*
+     * 項目名の日本語表記。FormRequest 側で attributes() を持つリクエストはそちらが優先される。
+     * ここに書くのは「FormRequest を経由しない検証」向け —— 支給の Fortify Action
+     * (UpdateUserPassword / ResetUserPassword) は自クラス内で Validator を回すため
+     * attributes() を持たず、空のままだと日本語の画面に `password` と英語のまま表示される。
+     * S-B-06(設定・パスワード変更)で必要になったため追加した。
+     */
+    'attributes' => [
+        'name' => '氏名',
+        'email' => 'メールアドレス',
+        'password' => 'パスワード',
+        'password_confirmation' => 'パスワード(確認)',
+        'current_password' => '現在のパスワード',
+    ],
 ];

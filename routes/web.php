@@ -41,6 +41,9 @@ use App\Http\Controllers\SectionQuestionController;
 use App\Http\Controllers\SectionQuizController;
 use App\Http\Controllers\SectionQuizResultController;
 use App\Http\Controllers\Settings\AvailabilityController as SettingsAvailabilityController;
+use App\Http\Controllers\Settings\AvatarController as SettingsAvatarController;
+use App\Http\Controllers\Settings\PasswordController as SettingsPasswordController;
+use App\Http\Controllers\Settings\ProfileController as SettingsProfileController;
 use App\Http\Controllers\Settings\SettingsDefaultEnrollmentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WeakDrillController;
@@ -78,6 +81,33 @@ Route::middleware('auth')->group(function () {
         ->withTrashed()
         ->name('enrollments.show');
 });
+
+// ============================================================
+// 設定ルート(本人のプロフィール / パスワード / アバター)
+//
+// ⚠️ ミドルウェアは auth のみ。role: も active-learning も付けない。
+//    S-B-06 の要件が「全ロールが共通の設定画面を使う」「修了済(graduated)の受講生も使える」ため、
+//    ロール判定や学習中判定を挟むと要件違反になる(下の受講生専用 settings グループとは別物)。
+//
+//    全ルートがパラメータを持たない(/settings/profile など)ので、更新対象は常にログイン中の本人になる。
+//    「自分以外のユーザーの情報は更新できない」はルートの形が保証しており、Policy は設けない。
+// ============================================================
+Route::middleware('auth')
+    ->prefix('settings')
+    ->name('settings.')
+    ->group(function () {
+        // プロフィール設定画面(タブ切替のホスト)。サイドバー 3 枚とトップバーが Route::has でこの名前を見ている。
+        Route::get('profile', [SettingsProfileController::class, 'edit'])->name('profile.edit');
+        Route::patch('profile', [SettingsProfileController::class, 'update'])->name('profile.update');
+
+        // パスワード変更。Fortify 既定の PUT /user/password は登録せず、ここで受けて
+        // App\Actions\Fortify\UpdateUserPassword に委譲する(config/fortify.php のコメントの指示どおり)。
+        Route::put('password', [SettingsPasswordController::class, 'update'])->name('password.update');
+
+        // アバター画像。アップロードと削除で 1 つの URL を HTTP メソッドで分ける。
+        Route::post('avatar', [SettingsAvatarController::class, 'store'])->name('avatar.store');
+        Route::delete('avatar', [SettingsAvatarController::class, 'destroy'])->name('avatar.destroy');
+    });
 
 // ============================================================
 // 受講生専用ルート(受講中ステータスのみ通過、卒業ステータスはロック)

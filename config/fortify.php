@@ -148,7 +148,14 @@ return [
     'features' => [
         // Registration / 2FA は招待制 LMS のためスコープ外
         Features::resetPasswords(),
-        Features::updateProfileInformation(),
+        // updateProfileInformation は S-B-06 で外した。有効だと PUT /user/profile-information が
+        // 認証のみで登録され、本人が email を確認メール無しで変更できてしまう
+        // (UpdateUserProfileInformation は email を必須で受け forceFill で保存し、
+        //  User は MustVerifyEmail を実装していない)。email はログイン ID(本ファイル :50)であり、
+        //  原典スコープ外「メールアドレスの変更動線 — 管理者経由のみ」に反する。
+        //  氏名 / 自己紹介の更新は /settings/profile が受ける。
+        //  なお FortifyServiceProvider::boot() の updateUserProfileInformationUsing() は支給のまま残すが、
+        //  features から外したため呼ばれない(支給コードへの変更を最小にするため消していない)。
         // Password 更新は本人プロフィール画面 /settings/password で受け、UpdateUserPassword Action を委譲する
         // 自前 Controller(App\Http\Controllers\Settings\PasswordController)経由で扱うため、Fortify 既定の
         // PUT /user/password ルートは登録しない(同 path と /settings/password の二重登録防止)

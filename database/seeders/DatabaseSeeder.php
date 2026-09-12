@@ -16,6 +16,8 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             UserSeeder::class,
+            // アバター画像は User が揃ってから。固定アカウント 3 件 + demo 受講生の一部に割り当てる
+            AvatarSeeder::class,
             PlanSeeder::class,
             UserLifecycleSeeder::class,
             MeetingPackSeeder::class,
