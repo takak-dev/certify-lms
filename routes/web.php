@@ -18,6 +18,7 @@ use App\Http\Controllers\EnrollmentManagementController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
 use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MeetingPackController;
 use App\Http\Controllers\MeetingQuotaHistoryController;
 use App\Http\Controllers\MockExamAnswerController;
 use App\Http\Controllers\MockExamCatalogController;
@@ -234,6 +235,20 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.enrollments.updateExamDate');
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
+
+    // 面談パックマスタ管理(追加購入用 SKU の CRUD + 状態遷移、admin のみ)
+    // パラメータ名は {meetingPack} ではなく {plan}(原典の HTTP 表と支給 Blade の両方がこの名前)。
+    Route::resource('meeting-packs', MeetingPackController::class)
+        ->parameters(['meeting-packs' => 'plan'])
+        ->names('admin.meeting-packs');
+    // 状態遷移は基本情報の編集フォームから分離されている(編集画面に status の入力欄が無い)。
+    // 遷移の正しさ(下書きからしか公開できない等)は Action 側で拒否する。
+    Route::post('meeting-packs/{plan}/publish', [MeetingPackController::class, 'publish'])
+        ->name('admin.meeting-packs.publish');
+    Route::post('meeting-packs/{plan}/archive', [MeetingPackController::class, 'archive'])
+        ->name('admin.meeting-packs.archive');
+    Route::post('meeting-packs/{plan}/unarchive', [MeetingPackController::class, 'unarchive'])
+        ->name('admin.meeting-packs.unarchive');
 
     // お知らせ配信 — 配信は不可逆(再配信 / 編集 / 取消なし)。
     // edit / update / destroy を作らないことで、UI からも API からも書き換えられなくする
