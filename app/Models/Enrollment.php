@@ -143,6 +143,28 @@ class Enrollment extends Model
         return $this->hasOne(LearningHourTarget::class);
     }
 
+    /**
+     * 配下の個人学習目標(S-B-05)。
+     *
+     * ⛔ リレーション名 `goals` は支給コードが 2 箇所から固定している。変えると静かに壊れる。
+     * - enrollment-goal/_form.blade.php:9 が $enrollment->goals を読む
+     * - enrollment/_partials/student-index.blade.php:109 が $enrollment->goals_count を読む
+     *   (これは withCount('goals') が自動で付ける属性名。リレーション名を変えると名前も変わる)
+     *
+     * 並び順(decisions #43 / #152)はここでは与えない。読み出す Action 側で
+     * with(['goals' => fn ($q) => $q->displayOrder()]) と差し込む。
+     * eager load の closure で与えるのが本リポジトリの多数派(手本: app/UseCases/Part/ShowAction.php の
+     * 'chapters' => fn ($q) => $q->ordered())。リレーション定義に並び順を持つ例は
+     * User::switchableEnrollments() の 1 件だけで、あちらは「1 リクエスト内で複数描画されても
+     * キャッシュが効く」ことを狙った選択。目標は 1 画面 1 回しか描画しないので当てはまらない。
+     *
+     * @return HasMany<EnrollmentGoal, $this>
+     */
+    public function goals(): HasMany
+    {
+        return $this->hasMany(EnrollmentGoal::class);
+    }
+
     public function scopeLearning(Builder $query): Builder
     {
         return $query->where('status', EnrollmentStatus::Learning->value);

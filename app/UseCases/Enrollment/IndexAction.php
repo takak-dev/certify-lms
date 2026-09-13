@@ -29,6 +29,10 @@ final class IndexAction
                 'latestStatusLog',
                 'certificate',
             ])
+            // 個人目標の件数(S-B-05)。enrollment/_partials/student-index.blade.php:109 が
+            // $enrollment->goals_count を読む。付け忘れても ?? 0 で握り潰されて例外が出ず、
+            // 一覧が常に「0 件」と表示されるだけになるので気付きにくい
+            ->withCount('goals')
             // NULLS LAST: exam_date 未設定の Enrollment は最下段に集める
             ->orderByRaw('CASE WHEN exam_date IS NULL THEN 1 ELSE 0 END')
             ->orderBy('current_term')
