@@ -20,6 +20,7 @@ use App\Models\MockExam;
 use App\Models\MockExamQuestion;
 use App\Models\MockExamSession;
 use App\Models\Part;
+use App\Models\Plan;
 use App\Models\QaReply;
 use App\Models\QaThread;
 use App\Models\QuestionCategory;
@@ -50,6 +51,7 @@ use App\Policies\MockExamSessionPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartPolicy;
 use App\Policies\PartViewPolicy;
+use App\Policies\PlanPolicy;
 use App\Policies\QaReplyPolicy;
 use App\Policies\QaThreadPolicy;
 use App\Policies\QuestionCategoryPolicy;
@@ -97,6 +99,7 @@ class AuthServiceProvider extends ServiceProvider
         SectionQuestionAttempt::class => SectionQuestionAttemptPolicy::class,
         Meeting::class => MeetingPolicy::class,
         MeetingPack::class => MeetingPackPolicy::class,
+        Plan::class => PlanPolicy::class,
         CoachAvailability::class => CoachAvailabilityPolicy::class,
         QaThread::class => QaThreadPolicy::class,
         Announcement::class => AnnouncementPolicy::class,
