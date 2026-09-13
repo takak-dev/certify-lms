@@ -28,6 +28,7 @@ use App\Http\Controllers\MockExamSessionController;
 use App\Http\Controllers\MockExamSessionMonitorController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PartController;
+use App\Http\Controllers\PlanController;
 use App\Http\Controllers\QaReplyController;
 use App\Http\Controllers\QaThreadController;
 use App\Http\Controllers\QuestionCategoryController;
@@ -236,8 +237,23 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
 
+    // プランマスタ管理(受講期間 + 初期付与面談回数の CRUD + 状態遷移、admin のみ)
+    // パラメータ名は既定で {plan} になるので ->parameters() は不要
+    // (Route::resource は名前を単数化してハイフンを下線に直す。
+    //  面談パックが ->parameters() を付けているのは、原典の HTTP 表と支給 Blade が {plan} を使うため)。
+    Route::resource('plans', PlanController::class)
+        ->names('admin.plans');
+    // 状態遷移は基本情報の編集フォームから分離されている(編集画面に status の入力欄が無い)。
+    // 遷移の正しさ(下書きからしか公開できない等)は Action 側で拒否する。
+    Route::post('plans/{plan}/publish', [PlanController::class, 'publish'])
+        ->name('admin.plans.publish');
+    Route::post('plans/{plan}/archive', [PlanController::class, 'archive'])
+        ->name('admin.plans.archive');
+    Route::post('plans/{plan}/unarchive', [PlanController::class, 'unarchive'])
+        ->name('admin.plans.unarchive');
+
     // 面談パックマスタ管理(追加購入用 SKU の CRUD + 状態遷移、admin のみ)
-    // パラメータ名は {meetingPack} ではなく {plan}(原典の HTTP 表と支給 Blade の両方がこの名前)。
+    // パラメータ名は {meeting_pack} ではなく {plan}(原典の HTTP 表と支給 Blade の両方がこの名前)。
     Route::resource('meeting-packs', MeetingPackController::class)
         ->parameters(['meeting-packs' => 'plan'])
         ->names('admin.meeting-packs');

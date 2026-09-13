@@ -354,4 +354,23 @@ class User extends Authenticatable
             ->where('role', UserRole::Student)
             ->where('status', UserStatus::InProgress);
     }
+
+    /**
+     * プランを「契約中」で使っているユーザーに絞るスコープ。受講中(in_progress) + 招待中(invited)。
+     *
+     * 定義と理由は decisions #126(S-B-03 のプラン管理画面が出す「受講者数」)。
+     * 一覧の件数と詳細の受講者一覧が同じ定義を通るので、画面の 3 箇所で数が食い違わない。
+     *
+     * ⚠️ scopeActive() とは別物。あちらは受講中 + 卒業で、招待中を含まない。
+     * ⚠️ role を見ない。plan_id を持つのは受講生だけ(コーチは Invitation/StoreRequest.php:35 が
+     * prohibited_if で禁止)なので、Plan 経由で使う前提のスコープ。
+     *
+     * @param Builder<User> $query
+     *
+     * @return Builder<User>
+     */
+    public function scopeContracted(Builder $query): Builder
+    {
+        return $query->whereIn('status', [UserStatus::InProgress, UserStatus::Invited]);
+    }
 }
