@@ -12,6 +12,7 @@ use App\Enums\UserStatus;
 use App\Models\Certificate;
 use App\Models\Certification;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -25,13 +26,18 @@ use Illuminate\Support\Carbon;
  *
  * 1. **固定アカウント**(deterministic): 動作確認・スクショ撮影で安定して参照できる「決まったユーザー」の受講登録を生成する。
  *    - `student@certify-lms.test` を CertificationSeeder 投入の published 資格 4 件に learning で登録(ダッシュボードの合格可能性バンド safe / warning / danger / データ不足 を 1 画面で網羅するため)
- *    - 1 件目に達成済 / 未達成の個人目標を 2 件追加(目標 CRUD・達成マーク UI の即時確認用)
+ *    - 1 件目に個人目標を 4 件追加(目標 CRUD・達成マーク UI の即時確認用)。
+ *      達成済 / 未達成 / 期日超過 / 期日なし を 1 件ずつにして、一覧の並び順(decisions #43)と
+ *      ダッシュボードの残日数ピル(dashboard/_partials/student/goal-timeline.blade.php:29-40)を
+ *      1 画面で確認できるようにする
  *    - coach@(`coach1`) / coach2@ / admin@ が固定 student の Enrollment にメモを残す(他コーチ越境拒否シナリオ用)
  *
  * 2. **状態網羅 demo データ**(Factory + state + count): 一覧 / フィルタ / 状態遷移ボタン / 認可境界が各 status で動くことを実機確認する。
  *    - learning(基礎ターム)/ learning(実践ターム)/ passed / failed / learning(試験日未設定) の 5 パターンを demo student に循環配分
  *    - passed Enrollment には Certificate(`certificates`)を INSERT し、PDF 実体も生成(修了済み → PDF DL の実機確認用)
  *    - 担当 coach が割り当てられている資格 Enrollment にはコーチメモを 1-2 件散らす(coach 動線の即時確認用)
+ *    - 個人目標を 0-2 件散らす(coach / admin / 他受講生から見たときの認可分岐の即時確認用。
+ *      0 件のケースを残すのは「この受講生はまだ目標を登録していません」の文面を確認するため)
  *
  * 依存順序: `UserSeeder` → `CertificationSeeder`(担当 coach 割当含む)→ 本 Seeder。
  */
@@ -152,6 +158,76 @@ final class EnrollmentSeeder extends Seeder
                     'changed_reason' => '新規登録',
                 ],
             );
+
+            // 1 件目の受講登録にだけ個人目標を置く(S-B-05)。
+            // 全件に置くと、目標が 1 件も無い状態の見え方(0 件メッセージ)を確認できなくなる
+            if ($index === 0) {
+                $this->seedFixedStudentGoals($enrollment);
+            }
+        }
+    }
+
+    /**
+     * 固定 student の個人目標を投入する(S-B-05)。
+     *
+     * 達成済 / 未達成 / 期日超過 / 期日なし を 1 件ずつ置く。これで受講登録詳細では
+     * 取り消し線とチェックアイコンの視覚区別・達成マーク / 解除・編集 / 削除が、
+     * ダッシュボードでは残日数ピル(あと N 日 / 本日まで / N 日超過)が一度に確認できる。
+     *
+     * タイトルをキーに firstOrCreate するので、Seeder を複数回流しても増えない。
+     * ⚠️ achieved_at は $fillable に入れていない(フォーム経由の書き込みを禁じている)ため、
+     *    firstOrCreate の属性では入らない。MarkAchievedAction と同じく forceFill で入れる。
+     */
+    private function seedFixedStudentGoals(Enrollment $enrollment): void
+    {
+        $rows = [
+            [
+                'title' => '過去問を 5 年分解き終える',
+                'target_date' => now()->addMonth()->toDateString(),
+                'description' => '直近 5 年分を 1 年ずつ、時間を計って解く。',
+                'achieved_at' => null,
+            ],
+            [
+                'title' => '参考書を 1 周読み切る',
+                'target_date' => now()->subDays(3)->toDateString(),   // 期日を過ぎた未達成
+                'description' => '分からない箇所には付箋を貼って後で戻る。',
+                'achieved_at' => null,
+            ],
+            [
+                'title' => '学習の習慣を作る',
+                'target_date' => null,                                 // 期日なし(一覧では末尾)
+                'description' => null,
+                'achieved_at' => null,
+            ],
+            [
+                'title' => '出題範囲を一通り把握する',
+                'target_date' => now()->subWeeks(2)->toDateString(),
+                'description' => '公式のシラバスを読み、章ごとの分量を掴む。',
+                'achieved_at' => now()->subWeeks(2),                   // 達成済(一覧では最後)
+            ],
+        ];
+
+        foreach ($rows as $row) {
+            // goals() 経由なので enrollment_id はリレーションが入れてくれる
+            $goal = $enrollment->goals()->firstOrCreate(
+                ['title' => $row['title']],
+                [
+                    'target_date' => $row['target_date'],
+                    'description' => $row['description'],
+                ],
+            );
+
+            if ($row['achieved_at'] !== null && ! $goal->isAchieved()) {
+                // 作成日時も達成日時より前にずらす。既定では created_at が now() になるため、
+                // そのままだと「立てる前に達成した」という本番ではありえない行になる
+                $goal->forceFill([
+                    'achieved_at' => $row['achieved_at'],
+                    'created_at' => $row['achieved_at']->copy()->subWeeks(3),
+                    // updated_at も揃える。save() が now() に戻してしまうため
+                    // (EnrollmentGoalFactory::achieved() と同じ形)
+                    'updated_at' => $row['achieved_at'],
+                ])->save();
+            }
         }
     }
 
@@ -202,9 +278,34 @@ final class EnrollmentSeeder extends Seeder
 
             $this->seedStatusLogs($enrollment, $pattern['state'], $student);
 
+            // 個人目標を 0 / 1 / 2 件と循環させて散らす(S-B-05)。
+            // 0 件の受講生を必ず残すのは、閲覧者によって文面が変わる 0 件メッセージ
+            // (enrollment-goal/_form.blade.php:48)を実機で確認するため
+            $this->seedDemoGoals($enrollment, $i % 3);
+
             if ($pattern['state'] === 'passed') {
                 $this->issueCertificate($enrollment, $passedAt);
             }
+        }
+    }
+
+    /**
+     * demo 受講生の受講登録に個人目標を散らす(S-B-05)。
+     *
+     * 件数は 0 / 1 / 2 を循環させる。1 件のときは未達成、2 件のときは達成済を 1 件混ぜて、
+     * coach / admin から見たときに「達成状況が分かる一覧が見えるが操作ボタンは出ない」ことを
+     * 実機で確認できるようにする。
+     */
+    private function seedDemoGoals(Enrollment $enrollment, int $count): void
+    {
+        if ($count === 0) {
+            return;
+        }
+
+        EnrollmentGoal::factory()->forEnrollment($enrollment)->create();
+
+        if ($count >= 2) {
+            EnrollmentGoal::factory()->forEnrollment($enrollment)->achieved()->create();
         }
     }
 

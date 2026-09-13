@@ -14,6 +14,7 @@ use App\Http\Controllers\ChatRoomController;
 use App\Http\Controllers\ContentSearchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
+use App\Http\Controllers\EnrollmentGoalController;
 use App\Http\Controllers\EnrollmentManagementController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
@@ -134,6 +135,33 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->group(function (
     // 修了証受領(受講生自己発火、graduated は active-learning でブロックされるため新規受領不可)
     Route::post('enrollments/{enrollment}/receive-certificate', [ReceiveCertificateController::class, 'store'])
         ->name('enrollments.receiveCertificate');
+
+    // 個人学習目標(S-B-05)。受講登録配下に受講生本人が立てる目標で、コーチ / 管理者は閲覧のみ。
+    //
+    // 一覧と追加フォームは受講登録詳細に埋め込まれているため、単独の index / show は持たない
+    // (原典「目標一覧 / 個別目標の単独画面は持たず」)。GET は edit の 1 本だけ。
+    //
+    // ⚠️ 名前に learning. などの prefix を付けない。支給 Blade が
+    //    route('enrollments.goals.store') / route('enrollment-goals.*') をこの綴りで呼んでいる。
+    //
+    // ⚠️ active-learning を付ける根拠は原典の「受講停止状態(修了済 / 退会済 / 招待中)の受講生は
+    //    目標操作にも到達しない」。受講解除(親の論理削除)はこのミドルウェアでは防げないが、
+    //    解除済みの Enrollment はモデルバインディングで解決されず 404 になる(decisions #132)。
+    //
+    // ⚠️ 達成マークと解除は同じ /achieve を HTTP メソッドで分ける(POST = 付ける / DELETE = 外す)。
+    //    「達成という状態を作る / 消す」と読む。原典の HTTP 表どおり。
+    Route::post('enrollments/{enrollment}/goals', [EnrollmentGoalController::class, 'store'])
+        ->name('enrollments.goals.store');
+    Route::get('enrollment-goals/{goal}/edit', [EnrollmentGoalController::class, 'edit'])
+        ->name('enrollment-goals.edit');
+    Route::patch('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'update'])
+        ->name('enrollment-goals.update');
+    Route::delete('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'destroy'])
+        ->name('enrollment-goals.destroy');
+    Route::post('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'markAchieved'])
+        ->name('enrollment-goals.markAchieved');
+    Route::delete('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'unmarkAchieved'])
+        ->name('enrollment-goals.unmarkAchieved');
 });
 
 // ============================================================

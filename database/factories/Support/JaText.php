@@ -96,6 +96,15 @@ final class JaText
         '%sで参考になる考え方はありますか',
     ];
 
+    /** 個人学習目標のタイトル(骨格。%s に TOPICS を差し込む) */
+    private const GOAL_TITLE_FORMATS = [
+        '%sの過去問を5年分解き終える',
+        '%sの章を最後まで読み切る',
+        '%sの演習を毎日1問ずつ続ける',
+        '%sの要点を自分の言葉でまとめる',
+        '%sの模試で合格ラインを超える',
+    ];
+
     /** 質問掲示板のスレッド本文 */
     private const QA_BODIES = [
         '教材を読み進めていますが、用語の違いが整理できず先に進めなくなりました。押さえるべき観点を教えていただけますか。',
@@ -241,6 +250,12 @@ final class JaText
     public static function qaReply(): string
     {
         return fake()->randomElement(self::QA_REPLIES);
+    }
+
+    /** 個人学習目標のタイトル */
+    public static function goalTitle(): string
+    {
+        return sprintf(fake()->randomElement(self::GOAL_TITLE_FORMATS), self::topic());
     }
 
     /**
