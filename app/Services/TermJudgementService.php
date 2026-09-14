@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\MockExamSessionStatus;
 use App\Enums\TermType;
 use App\Models\Enrollment;
 use App\Models\MockExamSession;
@@ -14,7 +15,7 @@ use App\Models\MockExamSession;
  * MockExamSession.status が in_progress / submitted / graded のいずれかであるレコードが 1 件でも存在すれば
  * 実践ターム(mock_practice)、そうでなければ基礎ターム(basic_learning)。
  *
- * MockExamSession の状態変化を伴う各 Action(StartAction / SubmitAction / CancelAction 等) がトランザクション内で
+ * MockExamSession の状態変化を伴う各 Action(StartAction / SubmitAction / DestroyAction 等) がトランザクション内で
  * 呼ぶ契約。現状の current_term と新判定が一致する場合は UPDATE しない(不要な書き込みを避ける)。
  */
 final class TermJudgementService
@@ -26,7 +27,11 @@ final class TermJudgementService
     {
         $hasActiveMock = MockExamSession::query()
             ->where('enrollment_id', $enrollment->id)
-            ->whereIn('status', ['in_progress', 'submitted', 'graded', 'canceled'])
+            ->whereIn('status', [
+                MockExamSessionStatus::InProgress->value,
+                MockExamSessionStatus::Submitted->value,
+                MockExamSessionStatus::Graded->value,
+            ])
             ->exists();
 
         $newTerm = $hasActiveMock ? TermType::MockPractice : TermType::BasicLearning;
