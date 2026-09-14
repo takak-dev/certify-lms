@@ -156,7 +156,7 @@ class EnrollmentShowGoalsTest extends TestCase
     /**
      * 受講解除すると、配下の目標は消える（decisions #135 / 面談2 Q44）。
      *
-     * 受講登録詳細は ->withTrashed() 付きなので解除後も開ける（routes/web.php:83-85）が、
+     * 受講登録詳細は ->withTrashed() 付きなので解除後も開ける（enrollments.show のルート定義）が、
      * そこに目標は 1 件も残っていない。追加フォームも出ない
      * （EnrollmentGoalPolicy::create が親の trashed() を見て false を返す。decisions #134）。
      *

@@ -16,6 +16,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\EnrollmentGoalController;
 use App\Http\Controllers\EnrollmentManagementController;
+use App\Http\Controllers\EnrollmentNoteController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
 use App\Http\Controllers\MeetingController;
@@ -162,6 +163,51 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->group(function (
         ->name('enrollment-goals.markAchieved');
     Route::delete('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'unmarkAchieved'])
         ->name('enrollment-goals.unmarkAchieved');
+});
+
+// ============================================================
+// コーチ + admin 共有ルート — 受講生メモ(S-B-07)
+//
+// 受講登録詳細に埋め込まれた一覧 + 追加フォームと、専用の編集ページ。書けるのはコーチと管理者だけで、
+// 受講生にはセクションごと見せない(姉妹機能の個人学習目標 S-B-05 とは権限が真逆)。
+//
+// ⚠️ 既存の「admin + コーチ共有ルート」グループ(下方)には入れない。あちらは ->prefix('admin') 付きで、
+//    URL が /admin/... になってしまう。支給 Blade が呼ぶのは prefix 無しの
+//    /enrollments/{enrollment}/notes と /enrollment-notes/{note} なので、prefix を持たない別グループを立てる。
+//
+// ⚠️ active-learning は付けない。あれは受講生のプラン期間が満了したかを見るミドルウェアで
+//    (app/Http/Middleware/EnsureActiveLearning.php:25 が UserStatus を判定)、
+//    コーチ / 管理者の状態を管理するためのものではない。既存の admin + コーチ共有グループにも
+//    付いていないので、そちらに揃えた。
+//    ⚠️ 「付けるとコーチが弾かれる」わけではない——実データのコーチ / 管理者はすべて in_progress で、
+//    付けても現状は通る(実測)。付けない理由は役割が違うことであって、実害の回避ではない。
+//
+// ⚠️ 名前に prefix を付けない。支給 Blade が route('enrollments.notes.store') /
+//    route('enrollment-notes.*') をこの綴りで呼んでいる(enrollment-note/_list.blade.php:16,47,54 /
+//    edit.blade.php:19)。
+//
+// 単独の index / show は持たない(原典「メモ一覧と追加フォームは受講登録詳細画面に埋め込み、
+// 編集は専用ページへ遷移する」)。GET は edit の 1 本だけ。
+//
+// ⚠️ 「担当資格のコーチか」「自分が書いたメモか」はここでは判定できない。role: が見られるのは
+//    ロールだけなので、その先は EnrollmentNotePolicy が担当する。
+//
+// ⚠️ store だけ URL に {enrollment} を持ち、update / destroy は持たない(原典の HTTP 表どおり)。
+//    そのため解除済み(論理削除済み)の受講登録に対して、
+//    - store … モデルバインディングが解決できず 404 になる(->withTrashed() を付けていないため)
+//    - update / destroy … ルートでは弾けない。EnrollmentNotePolicy が $note->enrollment を引いて
+//      trashed() を見て止める(decisions #137 / #157 / #158)
+//    という二段構えになる。
+// ============================================================
+Route::middleware(['auth', 'role:admin,coach'])->group(function () {
+    Route::post('enrollments/{enrollment}/notes', [EnrollmentNoteController::class, 'store'])
+        ->name('enrollments.notes.store');
+    Route::get('enrollment-notes/{note}/edit', [EnrollmentNoteController::class, 'edit'])
+        ->name('enrollment-notes.edit');
+    Route::patch('enrollment-notes/{note}', [EnrollmentNoteController::class, 'update'])
+        ->name('enrollment-notes.update');
+    Route::delete('enrollment-notes/{note}', [EnrollmentNoteController::class, 'destroy'])
+        ->name('enrollment-notes.destroy');
 });
 
 // ============================================================
