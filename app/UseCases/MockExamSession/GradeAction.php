@@ -14,6 +14,7 @@ use App\Models\MockExamSession;
  *
  * 必ず SubmitAction 内の `DB::transaction()` から呼ばれる前提で、自前のトランザクションは持たない。
  * 採点ロジック: 各 MockExamAnswer の selected_option_id を引いて、対応する MockExamQuestionOption の is_correct で is_correct を確定する。
+ * 得点率は「正解数 / 全問題数」の百分率(0〜100、小数第 2 位まで)で保持する。合格判定の相手 passing_score_snapshot が 1〜100 の整数のため、同じスケールに揃える。
  */
 final class GradeAction
 {
@@ -51,7 +52,7 @@ final class GradeAction
 
         $totalQuestions = $session->total_questions;
         $scorePercentage = $totalQuestions > 0
-            ? round($totalCorrect / $totalQuestions, 2)
+            ? round($totalCorrect / $totalQuestions * 100, 2)
             : 0.0;
         $pass = $scorePercentage >= (float) $session->passing_score_snapshot;
 
