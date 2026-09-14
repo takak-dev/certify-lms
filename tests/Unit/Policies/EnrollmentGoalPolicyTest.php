@@ -123,7 +123,7 @@ class EnrollmentGoalPolicyTest extends TestCase
      * belongsTo は既定で論理削除済みの親を返さないため $goal->enrollment が null になり、
      * Policy はそれを false に倒す。
      *
-     * 解除済みの受講登録詳細は withTrashed 付きで開ける(routes/web.php:83-85)。
+     * 解除済みの受講登録詳細は withTrashed 付きで開ける(enrollments.show のルート定義)。
      * そこで @can が評価されるため、null を想定しないと TypeError(500)で画面が落ちる。
      */
     public function test_owner_cannot_operate_goals_of_soft_deleted_enrollment(): void

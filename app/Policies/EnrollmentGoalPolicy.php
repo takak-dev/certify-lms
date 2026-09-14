@@ -89,7 +89,7 @@ class EnrollmentGoalPolicy
      *
      * ⚠️ $goal->enrollment が null になる経路がある。Enrollment は SoftDeletes を使っていて、
      *    belongsTo は既定で論理削除済みの親を返さないため、受講解除した受講登録の目標は null を返す
-     *    (実測で確認)。解除済みの受講登録詳細は withTrashed 付きで開けるので(routes/web.php:83-85)、
+     *    (実測で確認)。解除済みの受講登録詳細は withTrashed 付きで開けるので(enrollments.show のルート定義)、
      *    そこで @can が評価される。null を想定しないと TypeError で画面が 500 になる。
      *
      *    null を false に倒すことで、解除済みでは操作ボタンが出なくなる。

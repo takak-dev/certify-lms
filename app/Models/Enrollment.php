@@ -165,6 +165,25 @@ class Enrollment extends Model
         return $this->hasMany(EnrollmentGoal::class);
     }
 
+    /**
+     * 配下のコーチメモ(S-B-07)。受講生本人には見せない業務記録。
+     *
+     * ⛔ リレーション名 `notes` は支給コードが固定している。しかも呼び方が goals と違う。
+     *    enrollment-note/_list.blade.php:9 が Blade の中で
+     *    $enrollment->notes()->with('author')->orderByDesc('created_at')->get() と
+     *    クエリごと組み立てる。**このリレーションが無いと受講登録詳細が即エラーになる。**
+     *
+     * 並び順も eager load もすべて Blade 側が指定しているため、ここでも Action 側でも何も足さない
+     * (目標は with(['goals' => fn ($q) => $q->displayOrder()]) を Enrollment/ShowAction に置いたが、
+     *  メモは置く場所が無い。同じ受講登録詳細でも読み方が違う点に注意)。
+     *
+     * @return HasMany<EnrollmentNote, $this>
+     */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(EnrollmentNote::class);
+    }
+
     public function scopeLearning(Builder $query): Builder
     {
         return $query->where('status', EnrollmentStatus::Learning->value);

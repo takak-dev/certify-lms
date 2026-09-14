@@ -13,6 +13,7 @@ use App\Models\Certificate;
 use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\EnrollmentGoal;
+use App\Models\EnrollmentNote;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -124,7 +125,13 @@ final class EnrollmentSeeder extends Seeder
     }
 
     /**
-     * 固定 student に published 資格 4 件を learning で登録し、1 件目に個人目標 + 各件にコーチメモを添える。
+     * 固定 student に published 資格 4 件を learning で登録し、1 件目に個人目標、4 件のうち 3 件にコーチメモを添える。
+     *
+     * ⚠️ 支給時の docblock は「各件にコーチメモを添える」だったが、S-B-07 の実装時に 3 件へ変更した。
+     *    メモを 1 件も置かない受講登録を 1 つ残すのは、0 件メッセージ「まだメモがありません。」を
+     *    実機で確認するため。demo 受講生側では作れない——published 資格 5 件すべてに担当コーチが
+     *    割り当てられており(CertificationSeeder)、seedDemoNotes が必ず 1 件以上置くため。
+     *    1 件目にだけ個人目標を置いているのと同じ考え方。
      *
      * 4 件にするのは、ダッシュボードの合格可能性バンド(safe / warning / danger / データ不足)を 1 画面で
      * 網羅させるため(各 Enrollment の模試スコアは MockExamSeeder が帯ごとに作り分ける)。
@@ -164,6 +171,78 @@ final class EnrollmentSeeder extends Seeder
             if ($index === 0) {
                 $this->seedFixedStudentGoals($enrollment);
             }
+
+            $this->seedFixedStudentNotes($enrollment, $index, $admin);
+        }
+    }
+
+    /**
+     * 固定 student の受講登録にコーチメモを投入する(S-B-07)。
+     *
+     * 本 Seeder の docblock が Initial commit の時点で
+     * 「coach@(`coach1`) / coach2@ / admin@ が固定 student の Enrollment にメモを残す
+     * (他コーチ越境拒否シナリオ用)」と指定していた分の実装。
+     *
+     * 資格ごとの担当は CertificationSeeder が決めている(published を created_at 順に並べたとき
+     * 0,1,2 が coach1、2,3,4 が coach2。index 2 だけ両方が担当する複数指導者シナリオ)。
+     * ⚠️ この対応は CertificationSeeder の投入順が前提。資格名ではなく index で書くのは、
+     *    本 Seeder 自身が published 資格を orderBy('created_at') で並べて take(4) しており(run() の冒頭)、
+     *    固定 student の個人目標も $index === 0 に依存しているため——既存の前提に揃えた。
+     *    ⚠️ timestamps は秒精度なので created_at が同値になりうる。その場合この並びは崩れる
+     *    (原典が要求する「担当外資格の受講登録にもメモがある」が静かに満たされなくなる)。
+     *    Seeder を流したら実物を確認すること。
+     * それに合わせて、1 画面ずつ違う認可パターンが見えるように置き分ける。
+     *
+     * ⚠️ 表の「N 件目」は 1 から数える(このファイルの他の docblock と揃えた)。括弧内は $index の値。
+     *
+     * | 受講登録    | 担当       | 置くメモ            | 何が確認できるか                         |
+     * |------------|-----------|--------------------|----------------------------------------|
+     * | 1 件目 (0) | coach1    | coach1 + admin     | 自分のメモは操作可 / 管理者のメモは不可    |
+     * | 2 件目 (1) | coach1    | (置かない)          | 0 件メッセージ「まだメモがありません。」   |
+     * | 3 件目 (2) | coach1+2  | coach1 + coach2    | 他コーチのメモは読めるがボタンが出ない     |
+     * | 4 件目 (3) | coach2    | coach2             | coach1 は画面ごと 403(担当外拒否)        |
+     *
+     * どの受講登録も受講生本人から見るとメモのカードごと現れない(原典)。
+     *
+     * ⚠️ firstOrCreate は使えない。author_id を $fillable に入れていないため、
+     *    属性配列に混ぜても捨てられる(フォーム経由で作成者を詐称されないようにするための設計)。
+     *    本文をキーに存在を確かめてから明示代入する。手本: EnrollmentNote\StoreAction。
+     */
+    private function seedFixedStudentNotes(Enrollment $enrollment, int $index, ?User $admin): void
+    {
+        $coach1 = User::query()->where('email', 'coach@certify-lms.test')->first();
+        $coach2 = User::query()->where('email', 'coach2@certify-lms.test')->first();
+
+        /** @var list<array{0: ?User, 1: string}> $rows */
+        $rows = match ($index) {
+            0 => [
+                [$coach1, '基礎ターム中盤まで順調に進んでいます。演習の提出も滞りありません。'],
+                [$admin, '運営より: 面談回数の残数が少なくなっています。追加購入の案内を送りました。'],
+            ],
+            2 => [
+                [$coach1, 'リスニングの伸びが鈍っています。次回面談で学習時間の配分を見直します。'],
+                [$coach2, 'ビジネス文書の設問でつまずきがちです。頻出表現の一覧を共有しました。'],
+            ],
+            3 => [
+                [$coach2, '仕訳の手順は定着してきました。次は決算整理に進んでもらいます。'],
+            ],
+            default => [],
+        };
+
+        foreach ($rows as [$author, $body]) {
+            if ($author === null) {
+                continue;
+            }
+
+            // 本文をキーに冪等化する(Seeder を複数回流しても増えない)
+            if ($enrollment->notes()->where('body', $body)->exists()) {
+                continue;
+            }
+
+            $note = new EnrollmentNote(['body' => $body]);
+            $note->enrollment_id = $enrollment->id;
+            $note->author_id = $author->id;
+            $note->save();
         }
     }
 
@@ -283,6 +362,10 @@ final class EnrollmentSeeder extends Seeder
             // (enrollment-goal/_form.blade.php:48)を実機で確認するため
             $this->seedDemoGoals($enrollment, $i % 3);
 
+            // 担当コーチが割り当てられている資格の受講登録にだけコーチメモを散らす(S-B-07)。
+            // 本 Seeder の docblock が Initial commit の時点で指定していた分の実装
+            $this->seedDemoNotes($enrollment, $certification);
+
             if ($pattern['state'] === 'passed') {
                 $this->issueCertificate($enrollment, $passedAt);
             }
@@ -306,6 +389,27 @@ final class EnrollmentSeeder extends Seeder
 
         if ($count >= 2) {
             EnrollmentGoal::factory()->forEnrollment($enrollment)->achieved()->create();
+        }
+    }
+
+    /**
+     * demo 受講生の受講登録にコーチメモを散らす(S-B-07)。
+     *
+     * 件数は「その資格の担当コーチの人数」に一致させる(1 名なら 1 件、2 名なら 2 件)。
+     * 担当が 0 名の資格には置かない——誰も読めないメモになり、置いても画面に出ないため。
+     * 結果として本 Seeder の docblock が言う「1-2 件散らす」になる
+     * (CertificationSeeder が published 資格に 1 名または 2 名を割り当てているため)。
+     *
+     * 作成者を担当コーチに限るのは、コーチ一覧から受講生詳細をたどったときに
+     * 「自分のメモ(操作可)」と「他コーチのメモ(閲覧のみ)」が両方見えるようにするため。
+     */
+    private function seedDemoNotes(Enrollment $enrollment, Certification $certification): void
+    {
+        foreach ($certification->coaches as $coach) {
+            EnrollmentNote::factory()
+                ->forEnrollment($enrollment)
+                ->byAuthor($coach)
+                ->create();
         }
     }
 
