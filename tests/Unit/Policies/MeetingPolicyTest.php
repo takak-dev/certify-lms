@@ -50,8 +50,13 @@ class MeetingPolicyTest extends TestCase
         $coach = User::factory()->coach()->create();
         $student = User::factory()->student()->create();
         $otherStudent = User::factory()->student()->create();
-        $reserved = Meeting::factory()->forCoach($coach)->forStudent($student)->reserved()->create();
-        $canceled = Meeting::factory()->forCoach($coach)->forStudent($student)->canceled()->create();
+        // 同一コーチで 2 件作るので scheduled_at を明示して衝突を避ける。
+        // Factory の既定はランダム(14 日 × 12 時間 = 168 通り)で、
+        // (coach_id, scheduled_at) UNIQUE(B-A-01)の下では約 168 回に 1 回 Duplicate entry で落ちる。
+        $reserved = Meeting::factory()->forCoach($coach)->forStudent($student)->reserved()
+            ->create(['scheduled_at' => now()->addDay()->setTime(10, 0)]);
+        $canceled = Meeting::factory()->forCoach($coach)->forStudent($student)->canceled()
+            ->create(['scheduled_at' => now()->addDay()->setTime(11, 0)]);
         $policy = new MeetingPolicy;
 
         $this->assertTrue($policy->cancel($student, $reserved));

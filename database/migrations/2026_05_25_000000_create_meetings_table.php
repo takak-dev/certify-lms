@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * (coach_id, scheduled_at) UNIQUE で同コーチ × 同時刻の二重予約を DB レベルで禁止し、
  * Action 内の race condition は INSERT 失敗を `MeetingNoAvailableCoachException` に変換することで吸収する。
+ * ※ UNIQUE の実体はこの migration には無く、2026_06_30_000001_add_coach_slot_unique_to_meetings_table.php で追加する(B-A-01)。
  */
 return new class extends Migration
 {
