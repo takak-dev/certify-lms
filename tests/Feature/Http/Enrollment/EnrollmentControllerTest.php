@@ -11,6 +11,7 @@ use App\Models\MockExam;
 use App\Models\MockExamSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -263,6 +264,11 @@ class EnrollmentControllerTest extends TestCase
 
     public function test_receive_certificate_succeeds_when_eligible(): void
     {
+        // S-A-04 で IssueAction が private disk に修了証 PDF を書くようになったため、
+        // 差し替えないとテストのたびに storage/app/private/ へ実ファイルが残る
+        // (DB は RefreshDatabase で巻き戻るので、行の無い孤児ファイルになる)。
+        Storage::fake('private');
+
         $student = User::factory()->student()->inProgress()->create();
         $certification = Certification::factory()->published()->create();
         $enrollment = Enrollment::factory()->for($student)->for($certification)->learning()->create();

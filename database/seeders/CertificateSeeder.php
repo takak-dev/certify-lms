@@ -14,7 +14,9 @@ use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
+use App\Services\CertificatePdfService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -115,7 +117,11 @@ final class CertificateSeeder extends Seeder
     }
 
     /**
-     * Certificate を 1 件発行する。
+     * Certificate を 1 件発行し、PDF の実体も private disk に書く。
+     *
+     * 原典(S-A-04)の初期データ要件「担当コーチを分けた複数の修了証を、**PDF 実体まで生成した状態で**投入する」。
+     * `IssueAction` を使わず Service を直接呼ぶのは、Action が `issued_at` を `now()` で固定しており
+     * 卒業生の過去日(`passed_at`)を再現できないため。
      */
     private function issueCertificateForEnrollment(Enrollment $enrollment): void
     {
@@ -128,5 +134,10 @@ final class CertificateSeeder extends Seeder
                 'issued_at' => $issuedAt,
             ])
             ->create();
+
+        Storage::disk('private')->put(
+            $certificate->pdf_path,
+            app(CertificatePdfService::class)->render($certificate),
+        );
     }
 }
