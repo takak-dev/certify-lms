@@ -23,7 +23,7 @@ use Tests\TestCase;
  *    支給 Blade は両方 method="POST" で送り、解除側だけ @method('DELETE') を付けている。
  *
  * 達成日時の照合のため Carbon::setTestNow() で時計を止める
- * （手本: tests/Feature/UseCases/Certificate/IssueActionTest.php:33）。
+ * （手本: tests/Feature/UseCases/Certificate/IssueActionTest.php:35）。
  */
 class AchieveTest extends TestCase
 {

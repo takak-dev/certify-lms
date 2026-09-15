@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
+use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\CertificationCatalogController;
 use App\Http\Controllers\CertificationCategoryController;
 use App\Http\Controllers\CertificationCoachAssignmentController;
@@ -84,6 +85,16 @@ Route::middleware('auth')->group(function () {
     Route::get('enrollments/{enrollment}', [EnrollmentController::class, 'show'])
         ->withTrashed()
         ->name('enrollments.show');
+
+    // 修了証 PDF のダウンロード(S-A-04)。認可は CertificatePolicy::download に委譲する。
+    //
+    // ⚠️ このグループ(auth のみ)に置くこと。`active-learning` を付けると修了(graduated)した受講生が
+    //    自分の修了証を取得できなくなる——修了者ダッシュボードはこのボタンしか持たない
+    //    (resources/views/dashboard/graduated.blade.php:52)。
+    //    app/Http/Middleware/EnsureActiveLearning.php:16 も「修了証 PDF DL は引き続き利用可能」と明記している。
+    //    `role:` も付けない。受講生 / コーチ / 管理者の 3 ロールがそれぞれの範囲で使う。
+    Route::get('certificates/{certificate}/download', [CertificateController::class, 'download'])
+        ->name('certificates.download');
 });
 
 // ============================================================

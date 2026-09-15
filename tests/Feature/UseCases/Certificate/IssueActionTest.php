@@ -6,9 +6,11 @@ namespace Tests\Feature\UseCases\Certificate;
 
 use App\Enums\EnrollmentStatus;
 use App\Exceptions\Certification\CertificateAlreadyIssuedException;
+use App\Exceptions\Certification\CertificatePdfGenerationException;
 use App\Exceptions\Certification\EnrollmentNotPassedException;
 use App\Models\Certificate;
 use App\Models\Enrollment;
+use App\Services\CertificatePdfService;
 use App\UseCases\Certificate\IssueAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -42,6 +44,11 @@ class IssueActionTest extends TestCase
         $this->assertSame($enrollment->id, $certificate->enrollment_id);
         $this->assertSame($enrollment->certification_id, $certificate->certification_id);
         $this->assertDatabaseHas('certificates', ['id' => $certificate->id]);
+
+        // S-A-04: PDF の実体が private disk に保存されていること。
+        // これが無いと IssueAction から Storage::put() を消しても全テストが緑のままになり、
+        // 要件「プライベート保管領域に生成・保存する」に機械の番人がいなくなる。
+        Storage::disk('private')->assertExists($certificate->pdf_path);
     }
 
     public function test_throws_when_enrollment_not_passed(): void
@@ -99,5 +106,40 @@ class IssueActionTest extends TestCase
         }
 
         $this->assertSame(1, Certificate::query()->where('enrollment_id', $enrollment->id)->count());
+    }
+
+    /**
+     * PDF の生成に失敗したら、修了証は「発行されていない状態」に保たれる(S-A-04 の要件)。
+     *
+     * IssueAction は Certificate::create() の後に PDF を生成する。両方を 1 つの DB::transaction に
+     * 入れてあるので、PDF 側が失敗すれば INSERT ごと ROLLBACK され、行は残らない。
+     * これを検証しないと「トランザクションに入れたつもり」で終わってしまう。
+     */
+    public function test_certificate_is_not_persisted_when_pdf_generation_fails(): void
+    {
+        // Arrange: 修了条件を満たした受講登録(ここまでは正常系と同じ)
+        Storage::fake('private');
+
+        $enrollment = Enrollment::factory()->passed()->create();
+
+        // PDF 生成「だけ」を失敗させる。IssueAction は CertificatePdfService をコンストラクタで
+        // 受け取るので、コンテナのバインディングを差し替えれば他の処理はそのままに壊せる。
+        $this->mock(CertificatePdfService::class, function ($mock) {
+            $mock->shouldReceive('render')->once()->andThrow(new CertificatePdfGenerationException);
+        });
+
+        $action = $this->app->make(IssueAction::class);
+
+        // Act
+        try {
+            $action($enrollment);
+            $this->fail('CertificatePdfGenerationException が投げられるはず');
+        } catch (CertificatePdfGenerationException) {
+            // expected
+        }
+
+        // Assert: DB にも保管領域にも何も残っていない
+        $this->assertDatabaseCount('certificates', 0);
+        $this->assertSame([], Storage::disk('private')->allFiles());
     }
 }

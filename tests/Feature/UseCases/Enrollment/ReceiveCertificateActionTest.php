@@ -14,6 +14,7 @@ use App\Models\MockExamSession;
 use App\Models\User;
 use App\UseCases\Enrollment\ReceiveCertificateAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,11 @@ class ReceiveCertificateActionTest extends TestCase
 
     public function test_successfully_issues_certificate_and_records_status_log_when_all_published_exams_passed(): void
     {
+        // S-A-04 で IssueAction が private disk に修了証 PDF を書くようになったため、
+        // 差し替えないとテストを走らせるたびに storage/app/private/ へ実ファイルが残る。
+        // 呼び出し位置は同じ経路を検証している IssueActionTest:32 に合わせている。
+        Storage::fake('private');
+
         $student = User::factory()->student()->inProgress()->create();
         $certification = Certification::factory()->published()->create();
         $enrollment = Enrollment::factory()->for($student)->for($certification)->learning()->create();

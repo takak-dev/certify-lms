@@ -16,9 +16,11 @@ use App\Models\EnrollmentGoal;
 use App\Models\EnrollmentNote;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
+use App\Services\CertificatePdfService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * 開発用 受講登録シーダー。
@@ -460,5 +462,12 @@ final class EnrollmentSeeder extends Seeder
             ->create([
                 'issued_at' => $passedAt ?? now(),
             ]);
+
+        // PDF の実体を private disk に書く(S-A-04)。この PHPDoc は支給時点から「PDF 実体も生成する」と
+        // 書かれていたが実装が無く、修了証 DL が常に 404 になる状態だった。
+        Storage::disk('private')->put(
+            $certificate->pdf_path,
+            app(CertificatePdfService::class)->render($certificate),
+        );
     }
 }
