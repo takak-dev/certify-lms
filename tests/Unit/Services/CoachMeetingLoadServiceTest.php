@@ -35,6 +35,56 @@ class CoachMeetingLoadServiceTest extends TestCase
         $this->assertSame($coachC->id, $selected->id);
     }
 
+    /**
+     * 「割り当てたい順」の**全体**が固定されることを検証する(B-A-01)。
+     *
+     * 既存の 4 本は leastLoadedCoach() 経由で先頭 1 件しか見ていない。B-A-01 の予約処理は
+     * 先頭が並行予約で取られたとき 2 番手・3 番手へ進むため、**2 番手以降の並びが要件**になった。
+     * 先頭だけを見るテストでは、->values() の欠落や第 2 キーの消失を検知できない。
+     */
+    public function test_sort_by_load_returns_all_candidates_in_assignment_order(): void
+    {
+        // Arrange: 過去 30 日の completed を A=2 件 / B=0 件 / C=1 件 にする。
+        [$coachA, $coachB, $coachC] = User::factory()->coach()->count(3)->create();
+        $student = User::factory()->student()->create();
+
+        foreach ([5, 10] as $daysAgo) {
+            Meeting::factory()->completed()->forCoach($coachA)->forStudent($student)->create([
+                'scheduled_at' => now()->subDays($daysAgo)->startOfHour(),
+            ]);
+        }
+        Meeting::factory()->completed()->forCoach($coachC)->forStudent($student)->create([
+            'scheduled_at' => now()->subDays(7)->startOfHour(),
+        ]);
+
+        // Act
+        $sorted = app(CoachMeetingLoadService::class)->sortByLoad(collect([$coachA, $coachB, $coachC]));
+
+        // Assert: 件数の少ない順 B(0) → C(1) → A(2)。添字も 0 から振り直されている。
+        $this->assertSame([$coachB->id, $coachC->id, $coachA->id], $sorted->pluck('id')->all());
+        $this->assertSame([0, 1, 2], $sorted->keys()->all());
+    }
+
+    /**
+     * 同数のときの 2 番手以降も ULID 昇順で決定論的に並ぶことを検証する(B-A-01)。
+     *
+     * 並行予約では全リクエストが同じ順序を得ることが前提になる(順序が入れ替わると、
+     * 互いに違うコーチを 1 番手に選んで無駄な衝突が増える)。
+     */
+    public function test_sort_by_load_breaks_ties_by_ulid_for_every_position(): void
+    {
+        // Arrange: 3 名とも完了 0 件。
+        // ⚠️ **ULID の降順で渡す**。factory の生成順は ULID 昇順なので、そのまま渡すと
+        // 第 2 キーが無くても結果が一致してしまい、検証にならない(実測で確認)。
+        $coaches = User::factory()->coach()->count(3)->create()->sortByDesc('id')->values();
+
+        // Act
+        $sorted = app(CoachMeetingLoadService::class)->sortByLoad($coaches);
+
+        // Assert: 全体が ULID 昇順。
+        $this->assertSame($coaches->sortBy('id')->pluck('id')->all(), $sorted->pluck('id')->all());
+    }
+
     public function test_ties_break_by_ulid_ascending(): void
     {
         $coaches = User::factory()->coach()->count(3)->create();

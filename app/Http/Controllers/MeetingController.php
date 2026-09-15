@@ -159,8 +159,11 @@ class MeetingController extends Controller
     }
 
     /**
-     * 受講生の予約申請。残面談回数を確認し、空き枠から過去実績最少のコーチを自動割当して reserved で確定する。
-     * 同時刻 race condition は (coach_id, scheduled_at) UNIQUE 違反として検知し 409 へ変換する。
+     * 受講生の予約申請。残面談回数を確認し、担当コーチを**負荷の少ない順に試して** reserved で確定する。
+     *
+     * 同時刻 race condition は (coach_id, scheduled_at) UNIQUE 違反として検知するが、**即 409 にはしない**——
+     * 「そのコーチの獲得に失敗した」と解釈して次の候補へ進み、**全員が弾かれたときだけ 409** を投げる(B-A-01)。
+     * 空席の判定を DB に委ねる設計なので、`validateSlot()` は満枠を見ない(decisions #167)。
      */
     public function store(
         Enrollment $enrollment,
@@ -174,6 +177,12 @@ class MeetingController extends Controller
         $topic = $request->validated('topic');
         $student = $enrollment->user;
 
+        // ⚠️ 第 2 引数の再試行回数は必須(B-A-01)。重複キーの INSERT は 1062 を即返すとは限らず、
+        // 先行リクエストが未コミットのうちは待たされる。待ちが innodb_lock_wait_timeout を超えると
+        // errno 1205 / 1213 になり、Laravel はこれを UniqueConstraintViolationException ではなく
+        // DeadlockException として投げる——下の catch をすり抜けて 500 になり、原典が要求する 409 を返せない。
+        // 外側の transaction に回数を渡しておくと、handleTransactionException が rollBack して
+        // やり直すため、最終的に 1062(= UNIQUE 違反)の経路に収束する。
         $meeting = DB::transaction(function () use (
             $enrollment,
             $student,
@@ -190,26 +199,59 @@ class MeetingController extends Controller
 
             $availabilityService->validateSlot($enrollment->certification, $scheduledAt);
 
-            $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt);
+            $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt, $availabilityService);
             if ($candidates->isEmpty()) {
                 throw new MeetingNoAvailableCoachException;
             }
 
-            $coach = $coachLoadService->leastLoadedCoach($candidates);
+            $candidates = $coachLoadService->sortByLoad($candidates);
 
-            try {
-                $meeting = Meeting::create([
-                    'enrollment_id' => $enrollment->id,
-                    'coach_id' => $coach->id,
-                    'student_id' => $student->id,
-                    'scheduled_at' => $scheduledAt,
-                    'status' => MeetingStatus::Reserved->value,
-                    'topic' => $topic,
-                    'meeting_url_snapshot' => $coach->meeting_url,
-                ]);
-            } catch (UniqueConstraintViolationException $e) {
-                // 同時刻に他受講生が先行予約した race condition: UNIQUE(coach_id, scheduled_at) で弾かれた
-                throw new MeetingNoAvailableCoachException($e);
+            // 負荷の少ない順に候補コーチを試し、UNIQUE で弾かれたら次へ進む(B-A-01)。
+            // 並行予約では全員が同じスナップショットを読み、sortByLoad が安定ソートで同じ順序を返す
+            // (CoachMeetingLoadService.php:65-69)ため、先頭のコーチは必ず衝突する。UNIQUE 違反を即 409 にせず
+            // 「そのコーチの獲得に失敗した」と解釈することで、空いているコーチが残っていれば予約を成立させる。
+            // 候補抽出はキャンセル済みを占有扱いしない(= canceled が残る枠のコーチも候補に入る)ので、
+            // そのコーチが選ばれたときも UNIQUE で弾かれて次へ進む。DB を最終的な空席判定器として使う。
+            // INSERT をネストした transaction(SAVEPOINT)に包むのは、衝突後も外側の処理を続けるため
+            // (MySQL は重複キーで文単位ロールバックに留まるが、巻き戻し範囲を明示的に限定する)。
+            $meeting = null;
+            $coach = null;
+            $lastConflict = null;
+
+            foreach ($candidates as $candidate) {
+                try {
+                    $meeting = DB::transaction(fn () => Meeting::create([
+                        'enrollment_id' => $enrollment->id,
+                        'coach_id' => $candidate->id,
+                        'student_id' => $student->id,
+                        'scheduled_at' => $scheduledAt,
+                        'status' => MeetingStatus::Reserved->value,
+                        'topic' => $topic,
+                        'meeting_url_snapshot' => $candidate->meeting_url,
+                    ]));
+                    $coach = $candidate;
+
+                    break;
+                } catch (UniqueConstraintViolationException $e) {
+                    // ⚠️ 「同コーチ・同時刻」以外の UNIQUE 違反まで飲み込まない(B-A-01)。
+                    // Laravel の UniqueConstraintViolationException は errno 1062 の文字列一致だけで判定しており、
+                    // **どの索引で落ちたかは見ていない**。将来 meetings に別の UNIQUE が増えると、
+                    // その違反まで黙って「次のコーチへ」に吸収されて 409 に化ける。索引名で判別して取りこぼしは落とす。
+                    if (! str_contains($e->getMessage(), 'meetings_coach_id_scheduled_at_unique')) {
+                        throw $e;
+                    }
+
+                    $lastConflict = $e;
+
+                    continue;
+                }
+            }
+
+            // 候補はいたが全員が同時刻に埋まっていた。
+            // 最後の UNIQUE 違反を previous に繋いでおく(支給コードもそうしていた)——
+            // 繋がないと「なぜ 409 になったか」がログに何も残らない。
+            if ($meeting === null) {
+                throw new MeetingNoAvailableCoachException($lastConflict);
             }
 
             $transaction = ($consumeAction)($student, $meeting->id);
@@ -226,7 +268,7 @@ class MeetingController extends Controller
             });
 
             return $fresh;
-        });
+        }, 3);
 
         return redirect()
             ->route('meetings.show', $meeting)
@@ -331,22 +373,33 @@ class MeetingController extends Controller
     }
 
     /**
-     * 担当コーチ集合のうち、(1) 当該時刻に有効な availability 枠があり、
+     * 担当コーチ集合のうち、(1) その時刻に 60 分スロットを提供でき、
      * (2) 当該時刻に reserved / completed の Meeting を持たないコーチ集合を返す。
+     *
+     * ⚠️ (1) は MeetingAvailabilityService::coachIdsOfferingSlot() に委ねる(B-A-01)。
+     * ここで SQL の範囲判定を書くと、空き枠表示の格子と基準がずれて
+     * 「画面に出ない時刻が POST で通る」——稼働の終わり(9:00-17:30 の 17:00)でも
+     * 始まり(9:30 始まりの 10:00)でも成立することを実測で確認した。
+     *
+     * ⚠️ (2) は **status を見る**(canceled はすり抜けて候補に残る)。UNIQUE と基準を揃えないのは、
+     * 揃えると store() のリトライループと二重の対処になるため(decisions #167)。
+     * canceled が残る枠のコーチが選ばれた場合は INSERT が UNIQUE で弾かれ、ループが次の候補へ進む。
      *
      * @return Collection<int, User>
      */
-    private function findAvailableCoaches(Certification $certification, Carbon $scheduledAt): Collection
-    {
-        $time = $scheduledAt->format('H:i:s');
+    private function findAvailableCoaches(
+        Certification $certification,
+        Carbon $scheduledAt,
+        MeetingAvailabilityService $availabilityService,
+    ): Collection {
+        $offeringCoachIds = $availabilityService->coachIdsOfferingSlot($certification, $scheduledAt);
+
+        if ($offeringCoachIds === []) {
+            return collect();
+        }
 
         return $certification->coaches()
-            ->whereHas('coachAvailabilities', function ($q) use ($scheduledAt, $time) {
-                $q->where('day_of_week', $scheduledAt->dayOfWeek)
-                    ->where('is_active', true)
-                    ->where('start_time', '<=', $time)
-                    ->where('end_time', '>', $time);
-            })
+            ->whereIn('users.id', $offeringCoachIds)
             ->whereDoesntHave('meetingsAsCoach', function ($q) use ($scheduledAt) {
                 $q->where('scheduled_at', $scheduledAt)
                     ->whereIn('status', [MeetingStatus::Reserved->value, MeetingStatus::Completed->value]);

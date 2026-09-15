@@ -50,8 +50,11 @@ class NotificationMailTest extends TestCase
         $thread = QaThread::factory()->forCertification($certification)->create(['user_id' => $student->id]);
         $reply = QaReply::factory()->forThread($thread)->forUser($coach)->create();
         $message = ChatMessage::factory()->create(['sender_user_id' => $student->id]);
-        $reserved = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)->create();
+        // 同一コーチで 2 件作るため scheduled_at を明示する((coach_id, scheduled_at) UNIQUE。B-A-01)
+        $reserved = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)
+            ->create(['scheduled_at' => now()->addDay()->setTime(10, 0)]);
         $canceled = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)->create([
+            'scheduled_at' => now()->addDay()->setTime(11, 0),
             'canceled_by_user_id' => $student->id,
             'canceled_at' => now(),
         ]);
