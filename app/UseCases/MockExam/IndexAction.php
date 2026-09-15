@@ -25,7 +25,14 @@ final class IndexAction
         ?bool $isPublished = null,
         int $perPage = 20,
     ): LengthAwarePaginator {
-        $query = MockExam::query();
+        // 一覧の各行が参照する関連を、ここで「まとめて取りに行く」と宣言しておく（N+1 防止）。
+        // paginate() が SQL を実行する引き金なので、宣言はそれより前に置く必要がある。
+        // - certification / updatedBy: Blade が ->name を読むので実データごと取る
+        // - mockExamQuestions: 画面に出るのは件数だけなので withCount で数だけ取る
+        //   （mock_exam_questions_count という属性が生え、Blade はスネークケースで受け取る）
+        $query = MockExam::query()
+            ->with(['certification', 'updatedBy'])
+            ->withCount('mockExamQuestions');
 
         if ($auth->role === UserRole::Coach) {
             $query->whereHas(
