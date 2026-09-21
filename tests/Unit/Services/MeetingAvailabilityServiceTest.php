@@ -7,12 +7,15 @@ namespace Tests\Unit\Services;
 use App\Exceptions\Mentoring\MeetingOutOfAvailabilityException;
 use App\Models\Certification;
 use App\Models\CoachAvailability;
+use App\Models\GoogleCredential;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Services\GoogleCalendarService;
 use App\Services\MeetingAvailabilityService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Tests\TestCase;
 
 class MeetingAvailabilityServiceTest extends TestCase
@@ -234,5 +237,314 @@ class MeetingAvailabilityServiceTest extends TestCase
         // 例外が起きないことを確認
         app(MeetingAvailabilityService::class)->validateSlot($certification, Carbon::parse('2026-06-01 09:00:00'));
         $this->addToAssertionCount(1);
+    }
+
+    // ================================================================
+    // S-A-01 Google カレンダー連携による空き枠の除外
+    // ================================================================
+
+    /**
+     * Google の busy 時間帯を固定値で返す差し替え Service を Container に登録する。
+     *
+     * ⚠️ 本物の GoogleCalendarService を呼ぶと実際に Google へ通信してしまい、
+     *    テストがネットワークとトークンの状態に依存する。ここで検証したいのは
+     *    「busy が返ってきたとき MeetingAvailabilityService がどう振る舞うか」だけなので、
+     *    通信そのものは差し替える(本格的なモックは T-A-04 の担当)。
+     *
+     * @param array<int, array{0: string, 1: string}> $periods ['開始', '終了'] の組
+     */
+    private function fakeGoogleBusy(array $periods): void
+    {
+        $this->mock(GoogleCalendarService::class, function ($mock) use ($periods) {
+            $mock->shouldReceive('busyPeriods')->andReturn(array_map(
+                fn (array $p): array => [
+                    'start' => Carbon::parse($p[0]),
+                    'end' => Carbon::parse($p[1]),
+                ],
+                $periods,
+            ));
+        });
+    }
+
+    /**
+     * 連携済コーチの Google に予定がある時刻は、受講生の予約画面の空き枠から外れる。
+     *
+     * 原典「連携済コーチが Google カレンダーで予定を持つ時刻は、受講生の予約画面の空き枠から外れる」。
+     *
+     * データ: 稼働 09:00-12:00(= 09 / 10 / 11 の 3 枠)に、Google 側で 10:00-11:00 の予定を 1 件置く。
+     */
+    public function test_slots_exclude_times_busy_on_google_calendar(): void
+    {
+        // Arrange
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+        $this->fakeGoogleBusy([['2026-06-01 10:00:00', '2026-06-01 11:00:00']]);
+
+        // Act
+        $slots = app(MeetingAvailabilityService::class)
+            ->slotsForCertification($certification, Carbon::parse('2026-06-01'));
+
+        // Assert: 10:00 だけが消える
+        $this->assertSame(
+            ['09:00', '11:00'],
+            $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+    }
+
+    /**
+     * 未連携のコーチは Google を参照せず、従来どおりの判定で動く。
+     *
+     * 原典「連携していないコーチは従来通りの空き判定で動く」/ decisions #146。
+     *
+     * ⚠️ この 1 本が「既存機能を壊していない」ことの担保。busyPeriods が busy を返す状況でも、
+     *    google_credentials に行が無いコーチの枠は 1 つも消えてはいけない。
+     */
+    public function test_slots_are_untouched_for_coach_without_google_credential(): void
+    {
+        // Arrange: 連携していないコーチ。Google 側は「常に busy」を返す設定にしておく。
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        $this->fakeGoogleBusy([['2026-06-01 09:00:00', '2026-06-01 12:00:00']]);
+
+        // Act
+        $slots = app(MeetingAvailabilityService::class)
+            ->slotsForCertification($certification, Carbon::parse('2026-06-01'));
+
+        // Assert: 3 枠とも残る(Google を一度も見ていない)
+        $this->assertSame(
+            ['09:00', '10:00', '11:00'],
+            $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+    }
+
+    /**
+     * Google との通信に失敗しても空き枠の表示は止まらない。
+     *
+     * 原典 共通の振る舞い「Google との通信に失敗しても、空き枠の表示・面談の予約・
+     * 面談のキャンセルといった面談機能の根幹は止まらない」。
+     *
+     * ⚠️ 失敗時は「予定なし」に倒す。安全側(全部消す)ではないが、原典が「止まらない」を
+     *    優先しているため。逆に倒すと Google の一時的な不調で予約が一切できなくなる。
+     */
+    public function test_slots_survive_when_google_request_fails(): void
+    {
+        // Arrange: 連携済だが busyPeriods が必ず例外を投げる状態。
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+
+        $this->mock(GoogleCalendarService::class, function ($mock) {
+            $mock->shouldReceive('busyPeriods')->andThrow(new RuntimeException('Google is down'));
+        });
+
+        // Act: 例外が外へ漏れず、通常どおり枠が返ること
+        $slots = app(MeetingAvailabilityService::class)
+            ->slotsForCertification($certification, Carbon::parse('2026-06-01'));
+
+        // Assert
+        $this->assertSame(
+            ['09:00', '10:00', '11:00'],
+            $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+    }
+
+    /**
+     * ⭐ 画面から消えた時刻は、予約の経路でも通らない。
+     *
+     * coachIdsOfferingSlot() は予約確定時のコーチ候補を決めるメソッド(B-A-01)。
+     * ここに Google の判定を入れ忘れると「画面には出ないが POST では通る」状態になり、
+     * ダブルブッキングを構造的に消すという原典の目的が達成されない(CLAUDE.md §3-7)。
+     *
+     * ⚠️ この 1 本が無いと、slotsForCertification() 側の除外だけ書いても全テストが緑になる。
+     */
+    public function test_busy_coach_is_not_a_candidate_when_booking(): void
+    {
+        // Arrange: 10:00 の枠を提供するコーチ 1 人。Google 側に 10:00-11:00 の予定あり。
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+        $this->fakeGoogleBusy([['2026-06-01 10:00:00', '2026-06-01 11:00:00']]);
+
+        $service = app(MeetingAvailabilityService::class);
+
+        // Act & Assert: 10:00 は候補ゼロ、隣の 09:00 は候補に残る
+        $this->assertSame([], $service->coachIdsOfferingSlot($certification, Carbon::parse('2026-06-01 10:00:00')));
+        $this->assertSame([$coach->id], $service->coachIdsOfferingSlot($certification, Carbon::parse('2026-06-01 09:00:00')));
+    }
+
+    /**
+     * 予定とスロットが端で接するだけなら空き枠は消えない。
+     *
+     * 09:00-10:00 の予定と 10:00-11:00 のスロットは重なっていない。
+     * ここを「重なり」と判定すると、面談の直後・直前の枠が不当に消えて枠が痩せる。
+     *
+     * ⚠️ 境界の不等号(< と <=)を取り違えたときに落ちる 1 本。
+     */
+    public function test_adjacent_google_event_does_not_remove_the_slot(): void
+    {
+        // Arrange: Google 側の予定は 09:00-10:00 ちょうど。
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('10:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+        $this->fakeGoogleBusy([['2026-06-01 09:00:00', '2026-06-01 10:00:00']]);
+
+        // Act
+        $slots = app(MeetingAvailabilityService::class)
+            ->slotsForCertification($certification, Carbon::parse('2026-06-01'));
+
+        // Assert: 10:00 / 11:00 の 2 枠がそのまま残る
+        $this->assertSame(
+            ['10:00', '11:00'],
+            $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+    }
+
+    /**
+     * ⭐ 同じコーチ・同じ日への問い合わせは短時間キャッシュされ、Google を何度も呼ばない。
+     *
+     * これが無いと、受講生が予約画面の日付を往復するだけで「連携済コーチの人数」分の
+     * Google 通信を無制限に起こせる。Google のクォータを使い切ると
+     * googleBusyByCoach() のフォールバックで全コーチが「予定なし」扱いに倒れ、
+     * S-A-01 のダブルブッキング防止そのものが無効化される。
+     */
+    public function test_busy_periods_are_cached_between_requests(): void
+    {
+        // Arrange
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+
+        // busyPeriods は **1 回しか呼ばれてはいけない**
+        $this->mock(GoogleCalendarService::class, function ($mock) {
+            $mock->shouldReceive('busyPeriods')->once()->andReturn([
+                ['start' => Carbon::parse('2026-06-01 10:00:00'), 'end' => Carbon::parse('2026-06-01 11:00:00')],
+            ]);
+        });
+
+        $service = app(MeetingAvailabilityService::class);
+        $date = Carbon::parse('2026-06-01');
+
+        // Act: 同じ日を 3 回引く
+        $first = $service->slotsForCertification($certification, $date);
+        $service->slotsForCertification($certification, $date);
+        $third = $service->slotsForCertification($certification, $date);
+
+        // Assert: 結果は毎回同じで、10:00 が除外されている
+        foreach ([$first, $third] as $slots) {
+            $this->assertSame(
+                ['09:00', '11:00'],
+                $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+            );
+        }
+    }
+
+    /**
+     * 失敗はキャッシュしない。
+     *
+     * ⚠️ 失敗を覚えてしまうと、Google が復旧しても TTL の間ずっと「予定なし」に倒れたままになる。
+     *    1 回目は失敗、2 回目は成功、という並びで「2 回とも呼ばれる」ことを確かめる。
+     */
+    public function test_failed_lookups_are_not_cached(): void
+    {
+        // Arrange
+        $certification = Certification::factory()->published()->create();
+        $coach = User::factory()->coach()->create();
+        $this->attachCoach($certification, $coach);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        GoogleCredential::factory()->forUser($coach)->create();
+
+        // ⚠️ Mockery は andThrow()->andReturn() の連結では順番に返してくれない（実測）。
+        //    呼び出し回数で分岐させる。
+        $calls = 0;
+        $this->mock(GoogleCalendarService::class, function ($mock) use (&$calls) {
+            $mock->shouldReceive('busyPeriods')->twice()->andReturnUsing(function () use (&$calls): array {
+                $calls++;
+
+                if ($calls === 1) {
+                    throw new RuntimeException('Google is down');
+                }
+
+                return [
+                    ['start' => Carbon::parse('2026-06-01 10:00:00'), 'end' => Carbon::parse('2026-06-01 11:00:00')],
+                ];
+            });
+        });
+
+        $service = app(MeetingAvailabilityService::class);
+        $date = Carbon::parse('2026-06-01');
+
+        // Act
+        $failed = $service->slotsForCertification($certification, $date);   // 失敗 → 予定なし扱い
+        $recovered = $service->slotsForCertification($certification, $date); // 復旧 → 除外が効く
+
+        // Assert
+        $this->assertSame(
+            ['09:00', '10:00', '11:00'],
+            $failed->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+        $this->assertSame(
+            ['09:00', '11:00'],
+            $recovered->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
+    }
+
+    /**
+     * ⭐ その日に稼働枠を持たないコーチには、Google へ問い合わせない。
+     *
+     * ⚠️ これが無いと「資格の全コーチを渡す」実装に戻しても全テストが緑のまま
+     *    （モックが全員に空配列を返すため結果が変わらない）。
+     *    枠を出していない曜日のコーチにも通信が飛ぶのは、結果が捨てられる純粋な無駄で、
+     *    外部 API のクォータを削る。
+     *
+     * データ: 同じ資格に 2 人。月曜に枠を持つのは 1 人だけ。
+     */
+    public function test_google_is_only_asked_about_coaches_working_that_day(): void
+    {
+        // Arrange
+        $certification = Certification::factory()->published()->create();
+        $working = User::factory()->coach()->create();
+        $offDuty = User::factory()->coach()->create();
+        $this->attachCoach($certification, $working);
+        $this->attachCoach($certification, $offDuty);
+
+        // 月曜に枠を持つのは $working だけ（$offDuty は火曜のみ）
+        CoachAvailability::factory()->forCoach($working)->onDay(1)->timeRange('09:00:00', '12:00:00')->create();
+        CoachAvailability::factory()->forCoach($offDuty)->onDay(2)->timeRange('09:00:00', '12:00:00')->create();
+
+        // 2 人とも連携済みにしておく（絞り込みが無ければ 2 回呼ばれる）
+        GoogleCredential::factory()->forUser($working)->create();
+        GoogleCredential::factory()->forUser($offDuty)->create();
+
+        $this->mock(GoogleCalendarService::class, function ($mock) use ($working) {
+            // ⚠️ **1 回だけ**、しかも **$working について** 呼ばれること。
+            //    回数だけ見ると「絞り込みの向きを逆にした（枠を持たない側を渡す）」変異を
+            //    単体では殺せないので、誰について問い合わせたかまで見る。
+            $mock->shouldReceive('busyPeriods')->once()
+                ->withArgs(fn ($credential): bool => $credential->user_id === $working->id)
+                ->andReturn([]);
+        });
+
+        // Act: 月曜
+        $slots = app(MeetingAvailabilityService::class)
+            ->slotsForCertification($certification, Carbon::parse('2026-06-01'));
+
+        // Assert: 枠は $working の分だけ出る
+        $this->assertSame(
+            ['09:00', '10:00', '11:00'],
+            $slots->pluck('slot_start')->map(fn (Carbon $s) => $s->format('H:i'))->all(),
+        );
     }
 }

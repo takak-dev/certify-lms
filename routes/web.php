@@ -47,6 +47,7 @@ use App\Http\Controllers\SectionQuizController;
 use App\Http\Controllers\SectionQuizResultController;
 use App\Http\Controllers\Settings\AvailabilityController as SettingsAvailabilityController;
 use App\Http\Controllers\Settings\AvatarController as SettingsAvatarController;
+use App\Http\Controllers\Settings\GoogleCalendarController as SettingsGoogleCalendarController;
 use App\Http\Controllers\Settings\PasswordController as SettingsPasswordController;
 use App\Http\Controllers\Settings\ProfileController as SettingsProfileController;
 use App\Http\Controllers\Settings\SettingsDefaultEnrollmentController;
@@ -621,6 +622,21 @@ Route::middleware(['auth', 'role:coach'])
         Route::post('/', [SettingsAvailabilityController::class, 'store'])->name('store');
         Route::patch('{availability}', [SettingsAvailabilityController::class, 'update'])->name('update');
         Route::delete('{availability}', [SettingsAvailabilityController::class, 'destroy'])->name('destroy');
+    });
+
+// ============================================================
+// コーチ専用ルート — Google カレンダー連携(S-A-01)
+// ============================================================
+Route::middleware(['auth', 'role:coach'])
+    ->prefix('settings/google-calendar')
+    ->name('settings.google-calendar.')
+    ->group(function () {
+        // ⚠️ パスは /connect だが**ルート名は redirect**。支給 Blade が
+        //    route('settings.google-calendar.redirect') を呼んでいるので変えられない
+        //    (settings/_partials/tab-meeting.blade.php:81,134)。
+        Route::get('connect', [SettingsGoogleCalendarController::class, 'redirect'])->name('redirect');
+        Route::get('callback', [SettingsGoogleCalendarController::class, 'callback'])->name('callback');
+        Route::delete('/', [SettingsGoogleCalendarController::class, 'destroy'])->name('destroy');
     });
 
 // ============================================================

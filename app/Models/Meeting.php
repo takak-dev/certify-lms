@@ -40,6 +40,8 @@ class Meeting extends Model
         'meeting_url_snapshot',
         'completed_at',
         'meeting_quota_transaction_id',
+        // Google カレンダーに登録したイベントの ID(S-A-01)。未登録なら null。
+        'google_event_id',
     ];
 
     protected $casts = [

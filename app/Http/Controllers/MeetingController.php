@@ -25,6 +25,8 @@ use App\Notifications\MeetingReservedNotification;
 use App\Services\CoachMeetingLoadService;
 use App\Services\MeetingAvailabilityService;
 use App\Services\MeetingQuotaService;
+use App\UseCases\GoogleCalendar\RemoveMeetingEventAction;
+use App\UseCases\GoogleCalendar\SyncMeetingAction;
 use App\UseCases\MeetingQuota\ConsumeQuotaAction;
 use App\UseCases\MeetingQuota\RefundQuotaAction;
 use Carbon\Carbon;
@@ -172,10 +174,32 @@ class MeetingController extends Controller
         CoachMeetingLoadService $coachLoadService,
         MeetingQuotaService $quotaService,
         ConsumeQuotaAction $consumeAction,
+        SyncMeetingAction $syncAction,
     ): RedirectResponse {
         $scheduledAt = Carbon::parse($request->validated('scheduled_at'));
         $topic = $request->validated('topic');
         $student = $enrollment->user;
+
+        // ⚠️ 候補コーチの確定は **トランザクションの外** で行う(S-A-01)。
+        //    この中で MeetingAvailabilityService が Google に問い合わせるため、
+        //    トランザクション内に置くと Google の応答を待つ間ずっと行ロックを持ち続け、
+        //    B-A-01 の (coach_id, scheduled_at) UNIQUE の衝突待ちが詰まる。
+        //    下の DB::transaction(..., 3) はリトライするので、内側に置くと
+        //    1 回の予約で最大 3 倍の外部通信が走ることにもなる。
+        //    ここで得た候補はあくまで事前フィルタで、最終的な空席判定は
+        //    トランザクション内の INSERT(UNIQUE 違反)が担う —— この分担は B-A-01 の設計どおり。
+        //
+        // ⚠️ ただし **残回数の事前チェックを先に置く**。候補抽出をトランザクションの外へ出したことで、
+        //    そのままだと残回数 0 の受講生の POST でも Google への通信が起きるようになってしまう
+        //    (MeetingPolicy::create() はロールしか見ないため、受講中なら誰でもここへ到達する)。
+        //    時刻を変えながら連打されるとキャッシュも効かず、外部 API のクォータを削られる。
+        //    権威ある判定はトランザクション内に残す(下の remaining() )—— こちらは競合対策で、
+        //    ここは「無資格のリクエストで外部通信を起こさせない」ための門番。
+        if ($quotaService->remaining($student) < 1) {
+            throw new InsufficientMeetingQuotaException;
+        }
+
+        $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt, $availabilityService);
 
         // ⚠️ 第 2 引数の再試行回数は必須(B-A-01)。重複キーの INSERT は 1062 を即返すとは限らず、
         // 先行リクエストが未コミットのうちは待たされる。待ちが innodb_lock_wait_timeout を超えると
@@ -192,14 +216,16 @@ class MeetingController extends Controller
             $coachLoadService,
             $quotaService,
             $consumeAction,
+            $syncAction,
+            $candidates,
         ) {
             if ($quotaService->remaining($student) < 1) {
                 throw new InsufficientMeetingQuotaException;
             }
 
+            // validateSlot() は DB だけを見る(Google は参照しない)ので、トランザクション内でよい。
             $availabilityService->validateSlot($enrollment->certification, $scheduledAt);
 
-            $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt, $availabilityService);
             if ($candidates->isEmpty()) {
                 throw new MeetingNoAvailableCoachException;
             }
@@ -267,6 +293,16 @@ class MeetingController extends Controller
                 $coach->notify(new MeetingReservedNotification($fresh));
             });
 
+            // 連携済コーチの Google カレンダーへ予定を登録する(S-A-01)。
+            // ⚠️ 通知と同じく afterCommit に置く。理由は 2 つ。
+            //    ① トランザクションの中で外部通信すると、Google の応答を待つ間ずっと行ロックを
+            //       持ち続け、B-A-01 の (coach_id, scheduled_at) UNIQUE の衝突待ちが詰まる。
+            //    ② 予約がロールバックされたときに Google 側だけ予定が残るのを防ぐ。
+            // Action 側で失敗を握るので、ここで try-catch はしない(原典「予約は止まらない」)。
+            DB::afterCommit(function () use ($fresh, $syncAction): void {
+                ($syncAction)($fresh);
+            });
+
             return $fresh;
         }, 3);
 
@@ -282,12 +318,13 @@ class MeetingController extends Controller
     public function cancel(
         Meeting $meeting,
         RefundQuotaAction $refundAction,
+        RemoveMeetingEventAction $removeAction,
     ): RedirectResponse {
         $this->authorize('cancel', $meeting);
 
         $actor = auth()->user();
 
-        DB::transaction(function () use ($meeting, $actor, $refundAction) {
+        DB::transaction(function () use ($meeting, $actor, $refundAction, $removeAction) {
             $locked = Meeting::query()->whereKey($meeting->id)->lockForUpdate()->first();
             if ($locked === null || $locked->status !== MeetingStatus::Reserved) {
                 throw MeetingStatusTransitionException::forCancel();
@@ -320,6 +357,13 @@ class MeetingController extends Controller
 
             DB::afterCommit(function () use ($locked, $counterpart): void {
                 $counterpart?->notify(new MeetingCanceledNotification($locked));
+            });
+
+            // 登録済なら Google カレンダーからも予定を消す(S-A-01)。
+            // store() と同じ理由で afterCommit に置く。未登録の面談(未連携コーチ / 連携前の予約 /
+            // 登録に失敗した予約)は Action 側が google_event_id を見て何もしない。
+            DB::afterCommit(function () use ($locked, $removeAction): void {
+                ($removeAction)($locked);
             });
         });
 
