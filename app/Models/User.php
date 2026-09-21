@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -275,6 +276,24 @@ class User extends Authenticatable
     public function coachAvailabilities(): HasMany
     {
         return $this->hasMany(CoachAvailability::class, 'coach_id');
+    }
+
+    /**
+     * コーチが任意連携した Google アカウントの認証情報(S-A-01)。連携していなければ null。
+     *
+     * ⛔ メソッド名 `googleCredential` は支給コードが固定している。変えると静かに壊れる
+     *    (settings/_partials/tab-meeting.blade.php:82 が `$user->googleCredential` を読み、
+     *    :87 がその有無で「連携中 / 未連携」を出し分ける)。
+     *
+     * 連携できるのはコーチのみ(原典 スコープ外「受講生 / 管理者の Google アカウント連携」)だが、
+     * それを担保するのは Policy / middleware の責務なのでリレーション側では絞らない
+     * (coachAvailabilities() も同じ考え方で role を見ていない)。
+     *
+     * @return HasOne<GoogleCredential, $this>
+     */
+    public function googleCredential(): HasOne
+    {
+        return $this->hasOne(GoogleCredential::class);
     }
 
     /**

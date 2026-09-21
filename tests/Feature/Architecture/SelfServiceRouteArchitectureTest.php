@@ -26,13 +26,18 @@ class SelfServiceRouteArchitectureTest extends TestCase
 {
     public function test_self_service_settings_routes_take_no_parameters(): void
     {
-        // Arrange: 認可判定を持たない「本人専用」ルート(S-B-06 で追加した 5 本)
+        // Arrange: 認可判定を持たない「本人専用」ルート(S-B-06 で 5 本 + S-A-01 で 3 本)
         $selfServiceRoutes = [
             'settings.profile.edit',
             'settings.profile.update',
             'settings.password.update',
             'settings.avatar.store',
             'settings.avatar.destroy',
+            // Google カレンダー連携(S-A-01)。Policy も FormRequest の authorize() も持たず、
+            // Controller は $request->user() しか見ない = まさにこのテストが守る前提そのもの。
+            'settings.google-calendar.redirect',
+            'settings.google-calendar.callback',
+            'settings.google-calendar.destroy',
         ];
         $violations = [];
 

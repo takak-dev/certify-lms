@@ -7,9 +7,13 @@ namespace App\Services;
 use App\Exceptions\Mentoring\MeetingOutOfAvailabilityException;
 use App\Models\Certification;
 use App\Models\CoachAvailability;
+use App\Models\GoogleCredential;
 use App\Models\Meeting;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * 担当コーチ集合の面談可能時間枠を 60 分単位で展開し、空きスロットを集計する Service。
@@ -21,9 +25,38 @@ use Illuminate\Support\Collection;
 final class MeetingAvailabilityService
 {
     /**
+     * Google への問い合わせ結果を何秒キャッシュするか。
+     *
+     * ⚠️ このキャッシュが効くのは「**同じコーチ・同じ期間**」の組み合わせだけ(キーを見れば分かる)。
+     *    日付を変えながら見ていく操作では毎回ミスするので、**増幅対策としての効果は限定的**。
+     *    節約できるのは「同じ日を開き直す / 画面を再読み込みする」場面に限られる。
+     *
+     * ⚠️ **短くしている理由は、表示と予約判定の食い違いを小さくするため。**
+     *    空き枠の一覧は「その日 00:00〜23:59」、予約の確定時は「押された枠の 60 分」で
+     *    **別のキー**を使う(slotsForCertification と coachIdsOfferingSlot)。そのため
+     *    「一覧は古いキャッシュ・予約時は最新」という状態が TTL の間だけ起こりうる ——
+     *    利用者から見ると「押せるのに予約できない」になる。
+     *    予約が誤って成立することは無い(最終判定は常に最新 + DB の一意制約)が、
+     *    原典が消そうとしている「予約してからキャンセルされる体験」の小さい版ではある。
+     *
+     *    15 秒は「同じ日の再表示を拾える」と「食い違いの窓を短く保つ」の折り合い。
+     *    当初 60 秒にしていたが、確認作業でも 1 分待たされるため短縮した(decisions #193)。
+     */
+    private const BUSY_CACHE_TTL_SECONDS = 15;
+
+    public function __construct(
+        private readonly GoogleCalendarService $google,
+    ) {}
+
+    /**
      * 指定 Certification の担当コーチ集合について、指定日 1 日分の 60 分単位空きスロットを返す。
      *
-     * 1 リクエストあたり availability 1 クエリ + meetings 1 クエリ で完結させる。
+     * DB は availability 1 クエリ + meetings 1 クエリ + google_credentials 1 クエリ で完結させる。
+     * ⚠️ これに加えて「連携済コーチの人数分」だけ Google への通信が発生する(S-A-01)。
+     *    コーチごとにアクセストークンが違うため 1 リクエストにまとめられない。
+     *    通信は googleBusyByCoach() の中で 1 人ずつ try-catch され、失敗したコーチは
+     *    「予定なし」として扱われるので、Google が落ちても空き枠の表示は止まらない
+     *    (原典 共通の振る舞い)。
      *
      * @return Collection<int, array{slot_start: Carbon, slot_end: Carbon, available_coach_count: int}>
      */
@@ -55,6 +88,18 @@ final class MeetingAvailabilityService
             ->groupBy('coach_id')
             ->map(fn ($rows) => $rows->map(fn (Meeting $m) => $m->scheduled_at->format('H:i'))->all());
 
+        // 連携済コーチの Google 上の予定(S-A-01)。未連携コーチはここに現れないので、
+        // 従来どおり「面談可能時間枠 + 既存予約」だけで判定される(原典「連携していないコーチは従来通り」)。
+        //
+        // ⚠️ 渡すのは **その日に稼働枠を持つコーチ** だけ。資格の全コーチを渡すと、
+        //    その曜日に枠を出していないコーチにも問い合わせが飛ぶ —— 結果は捨てられるので
+        //    通信だけが無駄に発生する。日曜に枠を持たないコーチが多いほど効く。
+        $googleBusyByCoach = $this->googleBusyByCoach(
+            $availabilities->pluck('coach_id')->unique()->values()->all(),
+            $dayStart,
+            $dayEnd,
+        );
+
         /** @var array<string, int> $slotCounts スロット開始時刻(H:i) → available coach 数 */
         $slotCounts = [];
 
@@ -64,9 +109,16 @@ final class MeetingAvailabilityService
                 $coachId = $availability->coach_id;
                 $booked = $bookedByCoach[$coachId] ?? [];
 
-                if (! in_array($slotKey, $booked, true)) {
-                    $slotCounts[$slotKey] = ($slotCounts[$slotKey] ?? 0) + 1;
+                if (in_array($slotKey, $booked, true)) {
+                    continue;
                 }
+
+                // Google 側に予定が重なっているコーチは、このスロットの「予約可能なコーチ数」に数えない。
+                if ($this->overlapsBusy($googleBusyByCoach[$coachId] ?? [], $slot)) {
+                    continue;
+                }
+
+                $slotCounts[$slotKey] = ($slotCounts[$slotKey] ?? 0) + 1;
             }
         }
 
@@ -157,7 +209,118 @@ final class MeetingAvailabilityService
             }
         }
 
-        return array_keys($coachIds);
+        $candidates = array_keys($coachIds);
+
+        // ⭐ Google 側に予定があるコーチをここでも外す(S-A-01)。
+        //
+        // ⚠️ slotsForCertification() だけに入れると「画面には出ないが POST では通る」状態になり、
+        //    ダブルブッキングを構造的に消すという原典の目的が達成されない。
+        //    画面の出し分けと予約の可否は同じ判定を通す(CLAUDE.md §3-7 と同じ考え方で、
+        //    B-A-01 が「格子の定義を slotStarts() 1 箇所に集約した」のと同じ理由)。
+        //
+        // 見る範囲はこのスロットの 60 分だけ。1 日分を引く slotsForCertification() と違い、
+        // 予約時に必要なのは「今まさに押された時刻が空いているか」だけなので、問い合わせを最小にする。
+        $googleBusyByCoach = $this->googleBusyByCoach(
+            $candidates,
+            $scheduledAt,
+            $scheduledAt->copy()->addHour(),
+        );
+
+        return array_values(array_filter(
+            $candidates,
+            fn (string $coachId): bool => ! $this->overlapsBusy($googleBusyByCoach[$coachId] ?? [], $scheduledAt),
+        ));
+    }
+
+    /**
+     * 連携済コーチについて、指定期間に Google 側で予定が入っている時間帯を集める(S-A-01)。
+     *
+     * ⚠️ コーチ 1 人ごとに try-catch する。誰か 1 人の連携が壊れていても、他のコーチの空き枠と
+     *    画面全体を巻き添えにしないため(原典 共通の振る舞い「Google との通信に失敗しても、
+     *    空き枠の表示・面談の予約・面談のキャンセルといった面談機能の根幹は止まらない」)。
+     *    失敗したコーチは「予定なし」= 従来どおりの判定になる。
+     *
+     *    ⚠️ 「予定なし」に倒すのは安全側ではない(ダブルブッキングが起きうる)。それでも原典が
+     *       「止まらない」を優先しているのでこちらを採る。逆に倒すと、Google の一時的な不調で
+     *       そのコーチの枠が全部消え、予約がまったくできなくなる。
+     *
+     * @param array<int, string> $coachIds
+     *
+     * @return array<string, array<int, array{start: Carbon, end: Carbon}>> coach_id => 予定の時間帯
+     */
+    private function googleBusyByCoach(array $coachIds, Carbon $from, Carbon $to): array
+    {
+        if ($coachIds === []) {
+            return [];
+        }
+
+        $credentials = GoogleCredential::query()
+            ->whereIn('user_id', $coachIds)
+            ->get();
+
+        $busyByCoach = [];
+
+        foreach ($credentials as $credential) {
+            // 同じコーチ・同じ期間の問い合わせは短時間キャッシュする。
+            // ⚠️ キャッシュするのは **成功した結果だけ**。失敗を覚えると、Google が復旧しても
+            //    TTL の間ずっと「予定なし」に倒れたままになる。
+            $cacheKey = sprintf(
+                'google-busy:%s:%d:%d',
+                $credential->user_id,
+                $from->getTimestamp(),
+                $to->getTimestamp(),
+            );
+
+            $cached = Cache::get($cacheKey);
+
+            if (is_array($cached)) {
+                $busyByCoach[$credential->user_id] = $cached;
+
+                continue;
+            }
+
+            try {
+                $periods = $this->google->busyPeriods($credential, $from, $to);
+                Cache::put($cacheKey, $periods, self::BUSY_CACHE_TTL_SECONDS);
+                $busyByCoach[$credential->user_id] = $periods;
+            } catch (Throwable $e) {
+                // ⚠️ 例外オブジェクトをそのまま渡さない。Google クライアントの例外はリクエスト本体を
+                //    抱えており、そこに access_token が載る(GoogleCalendarService の同趣旨のコメント参照)。
+                // ⚠️ 例外クラス名も残す。ここは Throwable を全部握るので、Google の障害だけでなく
+                //    こちら側のバグ(TypeError など)も同じ経路で静かに飲み込まれる。
+                //    実際、GoogleCalendarService の Carbon の型違いによる TypeError を
+                //    この catch が握り潰しており、テストを書くまで気づけなかった。
+                Log::warning('Google カレンダーの空き状況を取得できませんでした。', [
+                    'coach_id' => $credential->user_id,
+                    'exception' => $e::class,
+                    'reason' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $busyByCoach;
+    }
+
+    /**
+     * 60 分スロットが、Google 側の予定と 1 分でも重なるか。
+     *
+     * 判定は「予定の開始 < スロットの終了」かつ「予定の終了 > スロットの開始」。
+     * 端が接するだけ(10:00-11:00 の予定と 11:00-12:00 のスロット)は重なりとみなさない
+     * —— 面談の終了と次の予定の開始が同じ時刻になるのは普通のことで、これを塞ぐと枠が無くなる。
+     *
+     * @param array<int, array{start: Carbon, end: Carbon}> $periods
+     */
+    private function overlapsBusy(array $periods, Carbon $slotStart): bool
+    {
+        $slotEnd = $slotStart->copy()->addHour();
+
+        foreach ($periods as $period) {
+            if ($period['start']->lt($slotEnd) && $period['end']->gt($slotStart)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

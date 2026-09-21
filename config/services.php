@@ -33,4 +33,15 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // Google Calendar 連携(S-A-01)。コーチが自分の Google アカウントを任意連携するための
+    // OAuth 2.0 クライアント情報。実際の値は .env にのみ置き、リポジトリにはコミットしない。
+    // 未設定でも面談機能は従来どおり動く(Google を参照しないだけ)。連携カードの表示は
+    // resources/views/settings/_partials/tab-meeting.blade.php:81 の Route::has() が
+    // ルート登録の有無を見ており、この設定値は見ていない。
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
 ];
