@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Schema;
  * meetings に (coach_id, scheduled_at) の UNIQUE を追加する。
  *
  * 同コーチ × 同時刻のダブルブッキングを DB レベルで禁止する最終防衛線(B-A-01)。
- * アプリ側は既にこの制約の存在を前提にしており、MeetingController の予約処理が
+ * アプリ側は既にこの制約の存在を前提にしており、StoreAction::__invoke() の予約処理が
  * UniqueConstraintViolationException を捕捉して MeetingNoAvailableCoachException(409) へ変換する。
  *
  * status を問わない(canceled も重複扱いにする)。面談2 Q46 で確認済み(decisions #143)——
