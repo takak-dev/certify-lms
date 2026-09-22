@@ -40,7 +40,7 @@ class UpdateProfileRequest extends FormRequest
         // meeting/show.blade.php:72-76 に用意されており、空を許す前提で画面が作られている)。
         if ($this->user()?->role === UserRole::Coach) {
             // url:http,https — 素の url ルールは file: や data: など 200 種類以上のスキームを許す
-            // (Str::isUrl() の既定)。この値は予約時に MeetingController.php:208 で meeting_url_snapshot へ
+            // (Str::isUrl() の既定)。この値は予約時に StoreAction::__invoke() で meeting_url_snapshot へ
             // 写され、受講生の画面の <a href> に出る(meeting/show.blade.php:61,65)
             $rules['meeting_url'] = ['nullable', 'string', 'url:http,https', 'max:500'];
         }

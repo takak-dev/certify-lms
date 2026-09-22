@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
  * 候補コーチ集合を、過去 30 日の completed 件数が少ない順に並べる Service。
  *
  * 自動コーチ割当の負荷分散ロジックを担う。本体は全体の順序を返す `sortByLoad` で、
- * 予約確定処理(MeetingController::store)はこの順にコーチを試す——先頭が並行予約で取られても
+ * 予約確定処理(StoreAction::__invoke)はこの順にコーチを試す——先頭が並行予約で取られても
  * 2 番手へ進めるようにするため(B-A-01)。`leastLoadedCoach` は先頭 1 名を取るだけの薄いラッパで、
  * 現在は本体からの呼出は無い(1 名だけ要る呼出元が現れたときのために残している)。
  *

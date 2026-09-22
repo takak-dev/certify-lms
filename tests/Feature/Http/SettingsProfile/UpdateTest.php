@@ -263,7 +263,7 @@ class UpdateTest extends TestCase
             '固定面談URLが501文字' => [['name' => '氏名', 'meeting_url' => 'https://example.com/'.str_repeat('a', 482)], 'meeting_url'],
             // 素の url ルールは file: など 200 種類以上のスキームを許すため url:http,https で絞っている。
             // この値は予約時に meeting_url_snapshot へ写され、受講生の画面の <a href> に出る
-            // (MeetingController.php:208 / meeting/show.blade.php:61,65)
+            // (StoreAction::__invoke() / meeting/show.blade.php:61,65)
             '固定面談URLが http/https 以外' => [['name' => '氏名', 'meeting_url' => 'file:///etc/passwd'], 'meeting_url'],
         ];
     }

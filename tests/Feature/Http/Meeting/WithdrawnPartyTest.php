@@ -65,7 +65,7 @@ class WithdrawnPartyTest extends TestCase
     public function test_coach_can_cancel_a_meeting_whose_student_has_withdrawn(): void
     {
         // Arrange: 退会した受講生の予約をコーチがキャンセルする。
-        //          ⚠️ withTrashed を足す前は、MeetingController がキャンセル時に呼ぶ
+        //          ⚠️ withTrashed を足す前は、CancelAction::__invoke() がキャンセル時に呼ぶ
         //          RefundQuotaAction へ null が渡り TypeError で 500 になっていた
         //          （キャンセル自体が成立しなかった）。decisions #105 の副次的な効果
         $student = User::factory()->student()->inProgress()->create();

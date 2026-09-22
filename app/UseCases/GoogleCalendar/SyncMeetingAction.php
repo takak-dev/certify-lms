@@ -23,7 +23,7 @@ use Throwable;
  * ⚠️ **必ず DB::afterCommit() から呼ぶこと。** トランザクションの中で外部通信すると、
  *    Google の応答を待つ間ずっと行ロックを持ち続ける。B-A-01 で入れた
  *    (coach_id, scheduled_at) UNIQUE の衝突待ちが長引き、予約が詰まる。
- *    手本: MeetingController::store() の MeetingReservedNotification も afterCommit にある。
+ *    手本: StoreAction::__invoke() の MeetingReservedNotification も afterCommit にある。
  */
 final class SyncMeetingAction
 {
