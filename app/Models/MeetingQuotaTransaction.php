@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * type ごとの amount 符号:
  *   - granted_initial / purchased / refunded / admin_grant: 正値(付与)
  *   - consumed: 負値(消費、原則 -1)
+ *   - payment_refunded: 負値(決済の返金にともなう取り消し。S-A-03 / decisions #219)
  *
  * 残数集計は `User.max_meetings + SUM(amount WHERE type != granted_initial)`(`granted_initial` は
  * `User.max_meetings` カラムと二重カウントしないよう除外)。詳細は `App\Services\MeetingQuotaService::remaining` 参照。

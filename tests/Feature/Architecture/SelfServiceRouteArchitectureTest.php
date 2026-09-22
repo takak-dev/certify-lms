@@ -26,7 +26,7 @@ class SelfServiceRouteArchitectureTest extends TestCase
 {
     public function test_self_service_settings_routes_take_no_parameters(): void
     {
-        // Arrange: 認可判定を持たない「本人専用」ルート(S-B-06 で 5 本 + S-A-01 で 3 本)
+        // Arrange: 認可判定を持たない「本人専用」ルート(S-B-06 で 5 本 + S-A-01 で 3 本 + S-A-03 で 3 本)
         $selfServiceRoutes = [
             'settings.profile.edit',
             'settings.profile.update',
@@ -38,6 +38,14 @@ class SelfServiceRouteArchitectureTest extends TestCase
             'settings.google-calendar.redirect',
             'settings.google-calendar.callback',
             'settings.google-calendar.destroy',
+            // 追加面談パックの購入(S-A-03)。CheckoutCreateRequest / CheckoutSuccessRequest の
+            // authorize() は true で、守っているのは ['auth', 'role:student', 'active-learning'] と
+            // 「ルートが他人を指せない」という形だけ。購入対象はリクエストボディの meeting_pack_id で
+            // 受け、作られる payments の持ち主は常に $request->user() 本人になる。
+            // ⚠️ /meeting-quota/checkout/{pack} のようにパラメータを足すと、その前提が崩れる。
+            'meeting-quota.checkout.select',
+            'meeting-quota.checkout.create',
+            'meeting-quota.checkout.success',
         ];
         $violations = [];
 

@@ -108,7 +108,10 @@ class StoreTest extends TestCase
         $ng = [
             ['meeting_count', 0],          // 下限 1 の1つ下
             ['meeting_count', 101],        // 上限 100 の1つ上
-            ['price', -1],                 // 下限 0 の1つ下
+            // ⚠️ 下限は 100 円(decisions #212・面談3 Q65 で PM が指定)。
+            //    -1 では min:0 に戻されても緑のままなので、境界の 99 で固定する
+            ['price', 99],                 // 下限 100 の1つ下
+            ['price', -1],                 // マイナス価格
             ['price', 1000001],            // 上限 1,000,000 の1つ上
             ['sort_order', -1],            // 下限 0 の1つ下
         ];
@@ -186,5 +189,27 @@ class StoreTest extends TestCase
         }
 
         $this->assertDatabaseCount('meeting_packs', 0);
+    }
+
+    /**
+     * 価格の下限ちょうど(100 円)は通る(decisions #212)。
+     *
+     * ⚠️ 実測(2026-09-22): Stripe は JPY 合計 ¥50 未満の Checkout Session を作れないため、
+     *    ¥1〜¥49 のパックを公開すると購入ボタンが 409 で止まる。100 円はその範囲より上にある。
+     */
+    public function test_price_lower_boundary_is_accepted(): void
+    {
+        // Arrange
+        $admin = User::factory()->admin()->create();
+
+        // Act
+        $response = $this->actingAs($admin)->post(
+            route('admin.meeting-packs.store'),
+            $this->payload(['name' => '最小価格パック', 'price' => 100]),
+        );
+
+        // Assert
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('meeting_packs', ['name' => '最小価格パック', 'price' => 100]);
     }
 }

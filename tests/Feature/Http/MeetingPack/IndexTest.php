@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Http\MeetingPack;
 
 use App\Models\MeetingPack;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -151,5 +152,51 @@ class IndexTest extends TestCase
                 ->get(route('admin.meeting-packs.index'))
                 ->assertForbidden();
         }
+    }
+
+    /**
+     * 一覧に購入数が載る(decisions #124)。
+     *
+     * ⚠️ 支給 Blade は `$plan->payments_count ?? 0`(meeting-pack/management/index.blade.php:135)と書いているため、
+     *    withCount を付け忘れても**例外にならず 0 件と表示され続ける**。
+     *    画面が落ちない分いちばん気付きにくいので、ここで機械的に止める。
+     */
+    public function test_index_includes_payment_count(): void
+    {
+        // Arrange: 購入が 2 件あるパックと、1 件も無いパック
+        $admin = User::factory()->admin()->create();
+        $sold = MeetingPack::factory()->published()->create();
+        $unsold = MeetingPack::factory()->published()->create();
+        Payment::factory()->count(2)->succeeded()->forPack($sold)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.index'));
+
+        // Assert
+        $response->assertOk();
+        $response->assertViewHas('plans', function ($plans) use ($sold, $unsold) {
+            $soldRow = $plans->firstWhere('id', $sold->id);
+            $unsoldRow = $plans->firstWhere('id', $unsold->id);
+
+            return $soldRow?->payments_count === 2 && $unsoldRow?->payments_count === 0;
+        });
+    }
+
+    /** 購入数には未完了(pending / failed)を含めない(decisions #232) */
+    public function test_payment_count_excludes_unsettled_payments(): void
+    {
+        // Arrange: 完了 1 件 + 未完了 2 件
+        $admin = User::factory()->admin()->create();
+        $plan = MeetingPack::factory()->published()->create();
+        Payment::factory()->succeeded()->forPack($plan)->create();
+        Payment::factory()->pending()->forPack($plan)->create();
+        Payment::factory()->failed()->forPack($plan)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.index'));
+
+        // Assert: 数えるのは完了の 1 件だけ
+        $response->assertOk();
+        $response->assertViewHas('plans', fn ($plans) => $plans->firstWhere('id', $plan->id)?->payments_count === 1);
     }
 }

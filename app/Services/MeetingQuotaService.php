@@ -32,6 +32,9 @@ final class MeetingQuotaService
                 MeetingQuotaTransactionType::Consumed,
                 MeetingQuotaTransactionType::Refunded,
                 MeetingQuotaTransactionType::Purchased,
+                // 返金による取り消し(S-A-03)。マイナスの行なので、ここに入れ忘れると
+                // 「返金したのに残数が減らない」という静かな不具合になる。
+                MeetingQuotaTransactionType::PaymentRefunded,
                 MeetingQuotaTransactionType::AdminGrant,
             ])
             ->sum('amount');

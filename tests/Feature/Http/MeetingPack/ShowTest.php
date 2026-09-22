@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Http\MeetingPack;
 
 use App\Models\MeetingPack;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -114,5 +115,31 @@ class ShowTest extends TestCase
                 $this->actingAs($user)->get($url)->assertForbidden();
             }
         }
+    }
+
+    /**
+     * 購入履歴が Eager Loading され、**直近 20 件だけ**渡る(decisions #124)。
+     *
+     * ⚠️ 20 件という数は支給 Blade 自身が明記している
+     *    (meeting-pack/management/show.blade.php:126「件(直近 20 件のみ表示)」/ :131「購入履歴(直近 20 件)」)。
+     *    全件渡すと画面の説明と中身が食い違う。
+     */
+    public function test_show_eager_loads_latest_20_payments_with_buyer(): void
+    {
+        // Arrange: 20 件を超える購入を作る(21 件)
+        $admin = User::factory()->admin()->create();
+        $plan = MeetingPack::factory()->published()->create();
+        Payment::factory()->count(21)->succeeded()->forPack($plan)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.show', $plan));
+
+        // Assert: 20 件に絞られ、購入者も一緒に読み込まれている(N+1 を作らない)
+        $response->assertOk();
+        $response->assertViewHas('plan', function (MeetingPack $plan) {
+            return $plan->relationLoaded('payments')
+                && $plan->payments->count() === 20
+                && $plan->payments->every(fn (Payment $p) => $p->relationLoaded('user'));
+        });
     }
 }

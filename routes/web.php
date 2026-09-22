@@ -22,6 +22,7 @@ use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\MeetingPackController;
+use App\Http\Controllers\MeetingQuotaCheckoutController;
 use App\Http\Controllers\MeetingQuotaHistoryController;
 use App\Http\Controllers\MockExamAnswerController;
 use App\Http\Controllers\MockExamCatalogController;
@@ -51,6 +52,7 @@ use App\Http\Controllers\Settings\GoogleCalendarController as SettingsGoogleCale
 use App\Http\Controllers\Settings\PasswordController as SettingsPasswordController;
 use App\Http\Controllers\Settings\ProfileController as SettingsProfileController;
 use App\Http\Controllers\Settings\SettingsDefaultEnrollmentController;
+use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WeakDrillController;
 use App\Http\Controllers\WeakDrillResultController;
@@ -645,6 +647,16 @@ Route::middleware(['auth', 'role:coach'])
 Route::middleware(['auth', 'role:student', 'active-learning'])->prefix('meeting-quota')->name('meeting-quota.')->group(function () {
     // 面談回数履歴
     Route::get('history', [MeetingQuotaHistoryController::class, 'index'])->name('history');
+
+    // 追加面談パックの購入(S-A-03)。原典 インターフェースの HTTP 表が 3 本とも
+    // 「受講生(学習中)のみ」としており、このグループの middleware がそのまま条件になる。
+    // active-learning は EnsureActiveLearning:15 の PHPDoc が弾く対象に「追加面談購入」を
+    // 名指ししており、要件「学習中でない受講生は購入できない」を満たす。
+    Route::get('checkout', [MeetingQuotaCheckoutController::class, 'select'])->name('checkout.select');
+    Route::post('checkout', [MeetingQuotaCheckoutController::class, 'create'])->name('checkout.create');
+    // Stripe の success_url からの戻り先。ルート名は支給 Blade から参照されていないため
+    // 既存 2 本(checkout.select / checkout.create)に合わせて checkout. の下に置いた。
+    Route::get('success', [MeetingQuotaCheckoutController::class, 'success'])->name('checkout.success');
 });
 
 // ============================================================
@@ -727,6 +739,22 @@ Route::middleware('auth')->group(function () {
     Route::get('notifications/{notification}', [NotificationController::class, 'show'])
         ->name('notifications.show');
 });
+
+// ============================================================
+// 外部サービスからの通知窓口(S-A-03)
+// ============================================================
+// ⚠️ 認証なしの公開エンドポイント(原典 インターフェース「認証なし(署名検証のみ)」)。
+//    叩くのは Stripe のサーバーでブラウザではないため、セッション Cookie を持たない。
+//    auth を付けるとログイン画面へリダイレクトされ、決済は成立しているのに残面談回数が
+//    永遠に増えない状態になる。正当性の担保は StripeWebhookController 内の署名検証だけ。
+// ⚠️ 同じ理由で CSRF 検証からも除外する(VerifyCsrfToken の $except)。
+// ⚠️ レート制限(throttle)は付けない。B-A-01 で同じことをしてレビューで取り下げた経緯があり
+//    (decisions #231 に経緯。pending-list 側は docs/pending-list.md:1042 の節)、理由は今も成立する ——
+//    ①ルート直書きの前例が無い(既存は RateLimiter::for の名前付きリミッタのみ)
+//    ②429 の受け皿が無い(resources/views/errors/ に 429 が無く、Handler の変換は api/* 限定)
+//    ③止まったとき何が返るかを固定するテストが無い。
+//    入れるなら対象ルートと上限値を一覧で決める別チケットとして起票する(decisions #231)。
+Route::post('webhooks/stripe', StripeWebhookController::class)->name('webhooks.stripe');
 
 // ============================================================
 // 開発専用: 共通コンポーネントショーケース(APP_ENV=local のみ表示)

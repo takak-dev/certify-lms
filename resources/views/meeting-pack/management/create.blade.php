@@ -60,7 +60,7 @@
                     type="number"
                     :value="old('price', 3000)"
                     :error="$errors->first('price')"
-                    hint="0 〜 1,000,000 の整数"
+                    hint="100 〜 1,000,000 の整数"
                     :required="true"
                 />
             </div>

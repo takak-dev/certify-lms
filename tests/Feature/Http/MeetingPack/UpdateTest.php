@@ -119,4 +119,29 @@ class UpdateTest extends TestCase
         // 値は変わっていない
         $this->assertDatabaseHas('meeting_packs', ['id' => $plan->id, 'name' => '5 回パック']);
     }
+
+    /**
+     * 価格の下限 100 円は編集時にも効く(decisions #212 は Store / Update の両方を名指し)。
+     *
+     * ⚠️ 実測(2026-09-22): Stripe は JPY 合計 ¥50 未満の Checkout Session を作れないため、
+     *    ¥1〜¥49 のパックを公開すると購入ボタンが 409 で止まる。
+     */
+    public function test_price_lower_boundary_is_enforced_on_update(): void
+    {
+        // Arrange
+        $admin = User::factory()->admin()->create();
+        $plan = MeetingPack::factory()->draft()->withPrice(3000)->create();
+
+        // Act & Assert: 下限の 1 つ下は弾く
+        $this->actingAs($admin)
+            ->patch(route('admin.meeting-packs.update', $plan), $this->payload(['price' => 99]))
+            ->assertSessionHasErrors('price');
+        $this->assertDatabaseHas('meeting_packs', ['id' => $plan->id, 'price' => 3000]);
+
+        // Act & Assert: 下限ちょうどは通る
+        $this->actingAs($admin)
+            ->patch(route('admin.meeting-packs.update', $plan), $this->payload(['price' => 100]))
+            ->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('meeting_packs', ['id' => $plan->id, 'price' => 100]);
+    }
 }
