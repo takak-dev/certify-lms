@@ -15,10 +15,10 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
  * 原典は一覧の並び順を指定していないが、支給 Model が既にこのスコープを持っており、
  * 受講生向けの購入動線(FetchStudentDashboardAction)も同じ並びで表示している。
  *
- * ⚠️ 一覧の「購入数」列(meeting-pack/management/index.blade.php:104,135)は withCount('payments') を付けていない。
- * App\Models\Payment は S-A-03(Stripe 連携)で作るため現時点では数えられず、
- * 支給 Blade が `$plan->payments_count ?? 0` と書いているので 0 件と表示される。
- * ⚠️ 例外にならないので気付きにくい。S-A-03 でここに withCount を足すこと(decisions #124)。
+ * 一覧の「購入数」列(meeting-pack/management/index.blade.php:104,135)のために
+ * withCount('payments') を付ける(S-A-03 / decisions #124)。
+ * ⚠️ 支給 Blade は `$plan->payments_count ?? 0` と書いているので、**付け忘れても例外にならず
+ * 「0 件」と表示され続ける**。画面が落ちない分いちばん気付きにくいので、テストで固定している。
  *
  * 手本: app/UseCases/Certification/IndexAction.php
  */
@@ -32,7 +32,12 @@ final class IndexAction
         ?MeetingPackStatus $status,
         int $perPage = 20,
     ): LengthAwarePaginator {
-        $query = MeetingPack::query();
+        // withCount は payments を全部読まずに件数だけを副問い合わせで取る(N+1 を作らない)。
+        // 数えるのは成立した購入(完了・返金済み)だけ(decisions #232)。決済画面で離脱しただけの
+        // pending を「購入数」に混ぜると、売れていないものが売れたように見える
+        $query = MeetingPack::query()->withCount([
+            'payments as payments_count' => fn ($q) => $q->settled(),
+        ]);
 
         // 空文字は「絞り込まない」と同じ扱い。検索欄を空で送信しても全件が出る
         if ($keyword !== null && $keyword !== '') {

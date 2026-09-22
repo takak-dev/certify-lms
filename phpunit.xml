@@ -41,6 +41,12 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!-- S-A-03: STRIPE_SECRET は空にして isConfigured() を false に倒し、モックを付け忘れた
+             テストが本物の Stripe に Checkout Session を作ってしまう事故を止める(S-A-01 の GOOGLE_* と同じ手)。
+             STRIPE_WEBHOOK_SECRET だけは固定のダミーを置く —— Webhook のテストは自分で HMAC を
+             組んで署名ヘッダを作るため、値が無いと署名検証のテストが書けない。 -->
+        <env name="STRIPE_SECRET" value="" force="true"/>
+        <env name="STRIPE_WEBHOOK_SECRET" value="whsec_dummy_for_phpunit" force="true"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>

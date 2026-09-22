@@ -143,6 +143,7 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 
 - `PUSHER_*` — チャットのリアルタイム配信に使用します。有効にする場合は Pusher のキーを取得して設定し、`BROADCAST_DRIVER=pusher` に変更してください。未設定（既定の `BROADCAST_DRIVER=log`）でもメッセージの送受信自体は動作し、相手画面へのリアルタイム反映のみ行われません
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` — コーチの Google カレンダー連携に使用します。設定手順は下記を参照してください。未設定の場合、面談設定タブの連携ボタンを押すと「設定されていません」と案内され、面談の予約・キャンセル・空き枠表示は従来どおり動作します
+- `STRIPE_SECRET` / `STRIPE_WEBHOOK_SECRET` — 追加面談パックの購入（Stripe 決済）に使用します。設定手順は下記を参照してください。未設定の場合、購入ボタンを押すと「決済サービスに接続できませんでした」と案内され、面談の予約・残回数の表示など既存の機能は従来どおり動作します
 
 ### Google カレンダー連携のセットアップ（任意）
 
@@ -175,5 +176,65 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 
 > ⚠️ **本番運用では認証情報の暗号化を推奨します。**
 > 現在の実装は `google_credentials` テーブルにアクセストークンとリフレッシュトークンを**平文で保存**しています。本番環境では Laravel の `encrypted` キャストなどで暗号化し、データベースのバックアップや閲覧権限の管理とあわせて保護してください。
+
+### 追加面談パックの購入（Stripe）のセットアップ（任意）
+
+受講生が残面談回数を使い切ったあと、追加の面談パックを購入できます。決済画面は Stripe がホストするページに委譲し、決済結果は Webhook で受け取って残回数へ加算します。
+
+> カード情報は本アプリを経由しません。そのため**ブラウザ側で使う公開可能キー（`pk_...`）は不要**で、必要なのは下記の 2 つだけです。
+
+#### 1. シークレットキーを取得する
+
+1. [Stripe ダッシュボード](https://dashboard.stripe.com/test/apikeys) をテストモードで開く（URL に `/test/` が入っていることを確認）
+2. 「シークレットキー」を表示してコピーし、`.env` に設定する
+
+   ```dotenv
+   STRIPE_SECRET=sk_test_取得したシークレットキー
+   ```
+
+⚠️ 本番用のキー（`sk_live_...`）を使うと**実際に課金されます**。開発中は必ずテストモードのキーを使ってください。
+
+#### 2. Webhook を受け取れるようにする（Stripe CLI）
+
+Stripe はインターネット越しにアプリへ通知を送るため、`localhost` には直接届きません。開発中は公式の **Stripe CLI** が Stripe からの通知をローカルへ転送します。
+
+**ホストで実行**（コンテナ内ではありません。`stripe login` がブラウザを開くため）:
+
+```bash
+# インストール（Debian / Ubuntu 系）
+curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" | sudo tee -a /etc/apt/sources.list.d/stripe.list
+sudo apt update && sudo apt install stripe
+
+# ログイン（シークレットキーを取得したのと同じ環境を選ぶ）
+stripe login
+
+# 通知の転送を開始（アプリを起動したまま、別ターミナルで動かし続ける）
+stripe listen --events checkout.session.completed,charge.refunded \
+  --forward-to localhost:8000/webhooks/stripe
+```
+
+起動時に表示される署名シークレットを `.env` に設定します。
+
+```
+> Ready! Your webhook signing secret is whsec_xxxxxxxx
+```
+
+```dotenv
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxx
+```
+
+※ ポートは `.env` の `APP_PORT`（既定は `8000`）に合わせてください。
+※ シークレットキーと `stripe listen` は**同じ環境**（テストモード / サンドボックス）で揃えてください。異なると決済は成立するのに通知が届かず、残回数が増えません。
+
+#### 3. 動作を確認する
+
+1. 受講生でログインし、**ダッシュボード → 面談回数を購入**（または面談予約画面の「追加面談を購入する」）から任意のパックを選ぶ
+2. Stripe の決済画面でテストカード `4242 4242 4242 4242`（有効期限は未来の日付、CVC は任意の 3 桁）を入力して支払う
+3. `stripe listen` のターミナルに `checkout.session.completed` が流れ、面談回数履歴に「購入」の行が増える
+
+返金は Stripe ダッシュボードの決済詳細から行います（アプリ側に返金の操作画面はありません）。**全額返金すると `charge.refunded` が届き、購入で増えた回数が取り消されます**（すでに面談で消費している場合は 0 回で止まり、マイナスにはなりません）。
+
+⚠️ Webhook は認証なしの公開エンドポイントで、正当性は署名検証のみで担保しています。`STRIPE_WEBHOOK_SECRET` が誤っていると通知はすべて 400 で拒否され、残回数は増えません。
 
 新しい環境変数やセットアップ手順を追加した場合は、`.env.example` と本 README に追記し、チームの誰でも環境を再現できる状態を保ってください。

@@ -14,6 +14,9 @@
     $typeBadge = fn (MeetingQuotaTransactionType $t) => match ($t) {
         MeetingQuotaTransactionType::GrantedInitial => ['variant' => 'info'],
         MeetingQuotaTransactionType::Purchased => ['variant' => 'success'],
+        // S-A-03: 決済の返金による取り消し。この match は default を持たないため、
+        //         MeetingQuotaTransactionType にケースを足したらここも足すこと
+        MeetingQuotaTransactionType::PaymentRefunded => ['variant' => 'danger'],
         MeetingQuotaTransactionType::AdminGrant => ['variant' => 'success'],
         MeetingQuotaTransactionType::Refunded => ['variant' => 'gray'],
         MeetingQuotaTransactionType::Consumed => ['variant' => 'warning'],

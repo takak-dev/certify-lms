@@ -29,6 +29,9 @@ class DatabaseSeeder extends Seeder
             // Google カレンダー連携(S-A-01)は固定コーチのアカウントだけを参照するので
             // UserSeeder の後ならどこでもよいが、面談まわりの一連として MentoringSeeder に続けて置く
             GoogleCredentialSeeder::class,
+            // 追加面談パックの購入記録(S-A-03)。UserSeeder(受講生)と MeetingPackSeeder(SKU)に依存し、
+            // 面談回数の台帳にも行を積むため、面談まわりの MentoringSeeder に続けて置く
+            PaymentSeeder::class,
             ContentSeeder::class,
             LearningSeeder::class,
             QuizAnsweringSeeder::class,

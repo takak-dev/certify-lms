@@ -44,4 +44,17 @@ return [
         'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    // Stripe 連携(S-A-03)。追加面談パックの決済を Stripe Checkout に委譲するための資格情報。
+    // 実際の値は .env にのみ置き、リポジトリにはコミットしない。
+    //
+    // ⚠️ 公開可能キー(STRIPE_KEY)は持たない。決済フォームは Stripe がホストする外部画面に
+    //    委譲する(原典「決済画面は信頼できる決済プラットフォームに任されている」)ため、
+    //    ブラウザ側で Stripe.js を動かす必要がなく、公開可能キーの出番が無い。
+    //
+    // ⚠️ webhook_secret は署名検証専用で、API 呼び出しには使わない。secret と役割が違う。
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
 ];

@@ -34,7 +34,11 @@ class StoreRequest extends FormRequest
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:2000'],
             'meeting_count' => ['required', 'integer', 'min:1', 'max:100'],
-            'price' => ['required', 'integer', 'min:0', 'max:1000000'],
+            // 下限 100 円(decisions #212・面談3 Q65 で PM が指定)。
+            // ⚠️ 実測(2026-09-22): Stripe は JPY の合計額が ¥50 未満の Checkout Session を
+            //    作れない(「must add up to at least ¥50 JPY」)。¥1〜¥49 のパックを公開すると
+            //    購入ボタンを押した受講生が 409 で止まる。100 円ならその範囲より上にある。
+            'price' => ['required', 'integer', 'min:100', 'max:1000000'],
             'stripe_price_id' => ['nullable', 'string', 'max:255'],
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:65535'],
         ];

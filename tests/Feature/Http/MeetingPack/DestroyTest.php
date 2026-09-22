@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Http\MeetingPack;
 
 use App\Models\MeetingPack;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -87,5 +88,83 @@ class DestroyTest extends TestCase
         }
 
         $this->assertDatabaseHas('meeting_packs', ['id' => $plan->id]);
+    }
+
+    /**
+     * 購入履歴のあるパックは、アーカイブ済みでも削除できない(decisions #38 / #123)。
+     *
+     * ⚠️ payments.meeting_pack_id は restrictOnDelete なので、この判定が無いと
+     *    外部キー違反で 500 になる。データは守られるが、利用者には何が起きたか分からない。
+     */
+    public function test_pack_with_purchase_history_cannot_be_deleted(): void
+    {
+        // Arrange: アーカイブ済み(＝状態だけ見れば消せる)だが、購入が 1 件ある
+        $admin = User::factory()->admin()->create();
+        $archived = MeetingPack::factory()->archived()->create();
+        Payment::factory()->succeeded()->forPack($archived)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->delete(route('admin.meeting-packs.destroy', $archived));
+
+        // Assert: 500 ではなく 409 → 直前の画面へ戻り、理由が文言で伝わる
+        $response->assertRedirect();
+        $response->assertSessionHas('error', '購入履歴のある面談パックは削除できません。');
+
+        // Assert: 行は残る
+        $this->assertDatabaseHas('meeting_packs', ['id' => $archived->id]);
+    }
+
+    /** 購入履歴が無ければアーカイブ済みは今までどおり消せる(拒否しすぎていないことの確認) */
+    public function test_archived_pack_without_purchase_history_is_still_deletable(): void
+    {
+        // Arrange
+        $admin = User::factory()->admin()->create();
+        $archived = MeetingPack::factory()->archived()->create();
+
+        // Act
+        $response = $this->actingAs($admin)->delete(route('admin.meeting-packs.destroy', $archived));
+
+        // Assert
+        $response->assertSessionHas('success');
+        $this->assertDatabaseMissing('meeting_packs', ['id' => $archived->id]);
+    }
+
+    /**
+     * 未完了(pending / failed)の購入でも削除は止める(decisions #232)。
+     *
+     * ⚠️ 「決済画面で離脱しただけの pending は数えない」という解釈も検討したが、
+     *    payments.meeting_pack_id は restrictOnDelete なので、アプリが許しても DB が
+     *    外部キー違反(500)で止める。**アプリの解釈を DB 制約に合わせる**。
+     *    画面から消したいだけならアーカイブで足りる。
+     */
+    public function test_pending_payment_also_blocks_deletion(): void
+    {
+        // Arrange: 未完了の購入だけがあるアーカイブ済みパック
+        $admin = User::factory()->admin()->create();
+        $archived = MeetingPack::factory()->archived()->create();
+        Payment::factory()->pending()->forPack($archived)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->delete(route('admin.meeting-packs.destroy', $archived));
+
+        // Assert: 500 ではなく 409 で、理由が文言で伝わる
+        $response->assertSessionHas('error', '購入履歴のある面談パックは削除できません。');
+        $this->assertDatabaseHas('meeting_packs', ['id' => $archived->id]);
+    }
+
+    /** 返金済みの購入は「売れた実績」なので削除を止める(decisions #232) */
+    public function test_refunded_payment_still_blocks_deletion(): void
+    {
+        // Arrange
+        $admin = User::factory()->admin()->create();
+        $archived = MeetingPack::factory()->archived()->create();
+        Payment::factory()->refunded()->forPack($archived)->create();
+
+        // Act
+        $response = $this->actingAs($admin)->delete(route('admin.meeting-packs.destroy', $archived));
+
+        // Assert
+        $response->assertSessionHas('error', '購入履歴のある面談パックは削除できません。');
+        $this->assertDatabaseHas('meeting_packs', ['id' => $archived->id]);
     }
 }

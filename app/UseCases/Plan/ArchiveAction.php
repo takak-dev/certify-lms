@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  * 画面(plan/management/show.blade.php)もボタンを状態で出し分けているが、それはブラウザの中だけの制御。
  * URL を直接叩かれた場合に効くのはこの判定。
  *
- * ⚠️ TODO(S-A-03): 状態の確認と UPDATE の間に行ロックが無い。管理者が2人同時に別の遷移を送ると、
+ * ⚠️ TODO(行ロック・pending-list): 状態の確認と UPDATE の間に行ロックが無い。管理者が2人同時に別の遷移を送ると、
  * どちらも自分の読んだ状態を正しいと思って更新しうる。手本の MeetingPack / Certification 系も同じ形。
  * S-A-03 で Certification 系ごと lockForUpdate() を見直す。
  *
