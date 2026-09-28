@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\AiChatConversation;
 use App\Models\Announcement;
 use App\Models\Certificate;
 use App\Models\Certification;
@@ -34,6 +35,7 @@ use App\Models\SectionQuestion;
 use App\Models\SectionQuestionAnswer;
 use App\Models\SectionQuestionAttempt;
 use App\Models\User;
+use App\Policies\AiChatConversationPolicy;
 use App\Policies\AnnouncementPolicy;
 use App\Policies\CertificatePolicy;
 use App\Policies\CertificationCategoryPolicy;
@@ -113,6 +115,7 @@ class AuthServiceProvider extends ServiceProvider
         QaThread::class => QaThreadPolicy::class,
         Announcement::class => AnnouncementPolicy::class,
         QaReply::class => QaReplyPolicy::class,
+        AiChatConversation::class => AiChatConversationPolicy::class,
         // 通知は Laravel 標準モデル。app/Models/ に無いが $policies に書けば紐づく
         DatabaseNotification::class => NotificationPolicy::class,
     ];

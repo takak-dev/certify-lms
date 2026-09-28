@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Models;
 
 use App\Enums\ContentStatus;
+use App\Models\Certification;
 use App\Models\Chapter;
 use App\Models\Part;
 use App\Models\Section;
@@ -63,6 +64,38 @@ class SectionTest extends TestCase
 
         // Assert
         $this->assertCount(2, $images);
+    }
+
+    public function test_scope_student_visible_also_requires_a_published_certification(): void
+    {
+        // Arrange
+        // ⭐ scopeStudentVisible が scopePublished に足しているのは「**資格の公開状態**」の 1 点だけ。
+        //    そこが効いていることを直接確かめる(効いていないと、公開停止した資格の教材が
+        //    AI 相談の文脈として外部 API に渡る。S-A-02 のレビューで見つかった穴。decisions #243)。
+        //    パート / 章 / セクションはすべて Published にし、**資格だけ**を非公開にする。
+        $hiddenCertification = Certification::factory()->create();          // Factory の既定は Draft
+        $hiddenPart = Part::factory()->published()->create(['certification_id' => $hiddenCertification->id]);
+        $hiddenChapter = Chapter::factory()->for($hiddenPart)->published()->create();
+        $hidden = Section::factory()->for($hiddenChapter)->published()->create();
+
+        // 比較対象: 資格まで公開されている教材
+        $openCertification = Certification::factory()->published()->create();
+        $openPart = Part::factory()->published()->create(['certification_id' => $openCertification->id]);
+        $openChapter = Chapter::factory()->for($openPart)->published()->create();
+        $open = Section::factory()->for($openChapter)->published()->create();
+
+        // Act
+        $visible = Section::studentVisible()->pluck('id');
+
+        // Assert
+        $this->assertTrue($visible->contains($open->id), '資格まで公開されている教材は通るはず');
+        $this->assertFalse(
+            $visible->contains($hidden->id),
+            '資格が非公開なら、配下がすべて Published でも通してはいけない',
+        );
+
+        // Assert: published() は資格を見ないので、こちらは通ってしまう(2 つの scope の違いそのもの)
+        $this->assertTrue(Section::published()->pluck('id')->contains($hidden->id));
     }
 
     public function test_scope_published_filters_only_published(): void

@@ -57,4 +57,17 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    // Gemini 連携(S-A-02)。受講生の AI 相談で使う生成 AI の API キー。
+    // 実際の値は .env にのみ置き、リポジトリにはコミットしない。
+    //
+    // ⚠️ モデル名・日次上限・システム指示などの機能設定はここではなく config/ai-chat.php にある。
+    //    支給 Blade が config('ai-chat.gemini.model') を直接読んでいる
+    //    (resources/views/ai-chat/show.blade.php:24)ため、そちらは動かせない。
+    //
+    // 未設定でも他の機能は従来どおり動く。AI 相談だけが「利用できない」案内になる
+    // (原典の非機能要件「AI の API キーが未設定の環境では、利用できない旨を案内する」)。
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
 ];
