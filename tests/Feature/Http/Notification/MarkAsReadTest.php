@@ -84,7 +84,15 @@ class MarkAsReadTest extends TestCase
         // Arrange
         $me = User::factory()->student()->inProgress()->create();
 
-        foreach (['https://evil.example.com/steal', '//evil.example.com/steal'] as $dangerous) {
+        // `/\evil…` と、タブを挟んだ `/<TAB>/evil…` はブラウザが `//evil…` と読み替える(2026-09-29 実測)
+        $dangerousUrls = [
+            'https://evil.example.com/steal',
+            '//evil.example.com/steal',
+            '/\\evil.example.com/steal',
+            "/\t/evil.example.com/steal",
+        ];
+
+        foreach ($dangerousUrls as $dangerous) {
             $notification = $this->makeNotification($me, url: $dangerous);
 
             // Act
