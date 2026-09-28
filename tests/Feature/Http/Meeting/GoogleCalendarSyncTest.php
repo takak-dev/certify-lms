@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -32,6 +33,8 @@ use Tests\TestCase;
  * ⚠️ Google への通信そのものは差し替える。本物を呼ぶとテストがネットワークとトークンの状態に
  *    依存してしまう。ここで見たいのは「LMS 側がどう振る舞うか」だけ(本格的なモックは T-A-04)。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class GoogleCalendarSyncTest extends TestCase
 {
     use RefreshDatabase;

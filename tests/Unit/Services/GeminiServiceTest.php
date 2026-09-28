@@ -12,6 +12,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,8 @@ use Tests\TestCase;
  *  ② 失敗の形 —— 上流の HTTP ステータスを持った例外にすること(支給コードが番号で文言を変える)
  *  ③ 返す値の形 —— 観測メタデータを**返さない**こと(decisions #233)
  */
+#[Group('external')]
+#[Group('gemini')]
 class GeminiServiceTest extends TestCase
 {
     /** テスト用のダミーキー。本物は使わない。 */
@@ -209,7 +212,9 @@ class GeminiServiceTest extends TestCase
             $this->assertStringContainsString('429', $e->detail());
         }
 
-        // 原典 スコープ外「リトライはしない(失敗分も日次カウント)」—— 1 回だけ送る
+        // 自動リトライはしない(decisions #248)—— 1 回だけ送る
+        // ⚠️ 2026-09-28 訂正: 以前ここは「原典 スコープ外『リトライはしない』」と引いていたが、原典にその文は無い
+        //    (該当行は「AI 失敗時の Rate Limit クォータ補正(失敗分も日次カウント)」)。
         Http::assertSentCount(1);
     }
 
@@ -247,5 +252,46 @@ class GeminiServiceTest extends TestCase
             // ⚠️ cURL の生メッセージを受講生向けの経路に流さない
             $this->assertStringNotContainsString('cURL', $e->detail());
         }
+    }
+
+    /**
+     * 一時的なエラーのあと、送り直せば成功する(T-A-04 原典「一時的なエラーからの再試行成功」)。
+     *
+     * 「再試行」は受講生による同じ内容の再送と読む(decisions #248)。S-A-02 原典の
+     * 「AI 応答に失敗しても受講生の質問は残り、同じ内容を送り直して再質問できる」が立て直しの道。
+     * ここでは Service の単位で「1 回目の失敗が次の送信に尾を引かない」ことを固定する
+     * (画面の流れは StoreMessageActionTest::test_the_same_question_can_be_sent_again_after_a_failure が担う)。
+     */
+    public function test_request_succeeds_when_sent_again_after_a_temporary_error(): void
+    {
+        // Arrange: Gemini が 1 回目は一時的な障害(503)、2 回目は正常に答える
+        // Http::sequence() は「呼ばれるたびに、積んだ応答を上から順に 1 つずつ返す」偽の応答の列
+        $this->configure();
+        Http::fake(['*' => Http::sequence()
+            ->push(['error' => ['message' => 'The model is overloaded.']], 503)
+            ->push($this->successBody('送り直した質問への答え')),
+        ]);
+        $service = new GeminiService;
+        $messages = [['role' => AiChatMessageRole::User, 'text' => '同じ質問']];
+
+        // Act 1: 1 回目は失敗する
+        try {
+            $service->generate($messages);
+            $this->fail('例外が投げられていない');
+        } catch (GeminiRequestFailedException $e) {
+            // Assert: 一時的な障害の番号を持った失敗として返る(支給 Blade が番号で文言を変える)
+            $this->assertSame(503, $e->upstreamStatus);
+        }
+
+        // Act 2: 受講生が同じ内容を送り直す
+        $result = $service->generate($messages);
+
+        // Assert: 2 回目は成功し、答えが返る
+        $this->assertSame(['text' => '送り直した質問への答え'], $result);
+
+        // Assert: 送信はちょうど 2 回 = 1 回の generate() につき 1 回だけ送っている。
+        // ⚠️ ここが自動リトライ(Http::retry() など)を足していないことの見張りも兼ねる。
+        //    足すと 1 回目の generate() の中で 2 つ目の応答まで使い切り、Act 1 が成功して上の fail() で落ちる。
+        Http::assertSentCount(2);
     }
 }

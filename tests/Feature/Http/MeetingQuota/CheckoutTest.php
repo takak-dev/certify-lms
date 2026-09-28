@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\StripeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -24,6 +25,8 @@ use Tests\TestCase;
  * ⚠️ Stripe への通信はモックで差し替える。phpunit.xml で STRIPE_SECRET を空にしてあるので
  *    差し替え忘れても外部へは出ないが、その場合は 409 になるため気付ける。
  */
+#[Group('external')]
+#[Group('stripe')]
 class CheckoutTest extends TestCase
 {
     use RefreshDatabase;
