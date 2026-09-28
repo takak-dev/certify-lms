@@ -150,6 +150,10 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 - `STRIPE_SECRET` / `STRIPE_WEBHOOK_SECRET` — 追加面談パックの購入（Stripe 決済）に使用します。設定手順は下記を参照してください。未設定の場合、購入ボタンを押すと「決済サービスに接続できませんでした」と案内され、面談の予約・残回数の表示など既存の機能は従来どおり動作します
 - `GEMINI_API_KEY` — 受講生の AI 相談（AI チャットボット）に使用します。設定手順は下記を参照してください。未設定の場合、AI 相談の画面を開くと「AI 相談は現在ご利用いただけません」と案内され、ほかの機能は従来どおり動作します
 
+外部サービスとは別に、次の項目は**別オリジン構成にするときだけ**設定します（同一オリジンで動かす限り不要）。
+
+- `SANCTUM_STATEFUL_DOMAINS` — Sanctum の Cookie 認証を受け付ける画面のドメイン。トップバーの通知ポップオーバーが叩く通知 API（`/api/v1/notifications`）がこの認証で守られています。未設定なら `APP_URL` のホストとポートが自動で含まれます。指定すると既定値が置き換わる点と、ポート番号まで含める点に注意してください。別オリジンの FE は `CORS_ALLOWED_ORIGINS` にも併せて追加します（[Laravel 公式: Configuring Your First-Party Domains](https://laravel.com/docs/10.x/sanctum#configuring-your-first-party-domains)）
+
 ### Google カレンダー連携のセットアップ（任意）
 
 コーチが自分の Google アカウントを連携すると、Google カレンダーに予定がある時刻が受講生の予約画面から除外され、面談の成立・キャンセルがカレンダーへ自動反映されます。

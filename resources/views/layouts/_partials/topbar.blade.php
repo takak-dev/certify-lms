@@ -11,6 +11,14 @@
     $searchCertificationId = $user?->role === \App\Enums\UserRole::Student
         ? $user->defaultEnrollment?->certification_id
         : null;
+    // 通知ポップオーバーは受講生・コーチだけ(S-A-05 原典アクセス制御 / decisions #144)。
+    // 管理者はベルだけ残して押しても何も起きない状態にする(decisions #214)。パネルを描かなければ
+    // JS(resources/js/notification/popover.js)は掴む相手が無く何もしない(decisions #259)
+    $notificationPopoverVisible = in_array(
+        $user?->role,
+        [\App\Enums\UserRole::Student, \App\Enums\UserRole::Coach],
+        true,
+    );
 @endphp
 
 <header class="sticky top-0 z-20 flex items-center gap-3 lg:gap-4 px-4 lg:px-8 py-3 border-b border-subtle bg-surface-canvas/85 backdrop-blur-md">
@@ -45,7 +53,7 @@
 
     {{-- 通知ベル + 通知ポップオーバー(ベル横アンカー) --}}
     @if (Route::has('notifications.index'))
-        <div class="relative" data-notification-popover-root>
+        <div class="relative" data-notification-popover-root @if ($notificationPopoverVisible) data-notification-popover-index-url="{{ route('api.v1.notifications.index') }}" @endif>
             <button
                 type="button"
                 data-notification-popover-trigger
@@ -67,7 +75,9 @@
                 </span>
             </button>
 
-            @include('notifications._partials.notification-popover')
+            @if ($notificationPopoverVisible)
+                @include('notifications._partials.notification-popover')
+            @endif
         </div>
     @endif
 
