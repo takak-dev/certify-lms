@@ -28,10 +28,18 @@
         </report>
     </coverage>
     <php>
+        <!-- S-A-02: 機能スイッチはテストでは常に ON に固定する。OFF だと ai-chat のルートが
+             1 本も登録されず、開発環境で OFF にしている人の手元だけ「ルートが無い」で落ちるため。
+             OFF の挙動を確かめるテストは、テスト側で config() を差し替えて検証する。 -->
+        <env name="AI_CHAT_ENABLED" value="true" force="true"/>
         <env name="APP_ENV" value="testing"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_DRIVER" value="array"/>
         <env name="DB_DATABASE" value="testing"/>
+        <!-- S-A-02: GEMINI_API_KEY を空にして isConfigured() を false に倒し、モックを付け忘れた
+             テストが本物の Gemini API を叩いてしまう事故を構造的に止める
+             (S-A-01 の GOOGLE_* / S-A-03 の STRIPE_SECRET と同じ手)。 -->
+        <env name="GEMINI_API_KEY" value="" force="true"/>
         <!-- S-A-01: 空にして isConfigured() を false に倒し、テストからの外部通信を止める。
              force="true" が無いと、シェルで export 済みの環境では上書きされず保護が外れる。 -->
         <env name="GOOGLE_CLIENT_ID" value="" force="true"/>

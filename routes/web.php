@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
@@ -715,6 +716,52 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
     Route::delete('qa-board/{thread}/replies/{reply}', [QaReplyController::class, 'destroy'])
         ->name('admin.qa-board.replies.destroy');
 });
+
+// ============================================================
+// 受講生専用ルート — AI 相談(S-A-02)
+// ============================================================
+// role:student の根拠は原典スコープ外「コーチ / 管理者による AI 相談機能の利用 — 受講生専用」。
+// active-learning の根拠は支給コードが直接くれている ——
+// app/Http/Middleware/EnsureActiveLearning.php:15 の PHPDoc が、弾く対象に ai-chat を名指ししている。
+//
+// ⭐ グループごと config('ai-chat.enabled') で囲む。原典の非機能要件
+//    「機能全体を無効化するスイッチ(OFF にすると関連 UI・画面ごと利用できなくなる)」を、
+//    ルートを登録しないことで実現する。画面側に手を入れる必要は無い ——
+//    サイドバーの項目は resources/views/components/nav/item.blade.php:14 の Route::has() が、
+//    フローティングウィジェットは resources/views/layouts/app.blade.php:60 の
+//    config('ai-chat.enabled') 判定が、それぞれ勝手に消してくれる。
+//
+// ⚠️ このファイルで config() を登録条件に使うのはここだけ(他の条件分岐は environment('local') の 1 箇所)。
+if (config('ai-chat.enabled')) {
+    Route::middleware(['auth', 'role:student', 'active-learning'])->group(function () {
+        // 入口。会話があれば最新へ redirect、0 件なら空状態
+        Route::get('ai-chat', [AiChatController::class, 'index'])
+            ->name('ai-chat.index');
+
+        // 会話の作成 / 再開。⚠️ 同じ教材では新しい会話を作らず既存を返す(decisions #201)。
+        // 支給 JS resources/js/ai-chat/floating-widget.js:259-260 が
+        // 「200 = 既存会話再開 / 201 = 新規作成」を前提にしている
+        Route::post('ai-chat/conversations', [AiChatController::class, 'store'])
+            ->name('ai-chat.conversations.store');
+
+        // 会話 1 件。⭐ Accept: application/json ならウィジェットの履歴復元用 JSON を返す
+        Route::get('ai-chat/conversations/{conversation}', [AiChatController::class, 'show'])
+            ->name('ai-chat.conversations.show');
+
+        // タイトルの変更(会話オーナーのみ。AiChatConversationPolicy::update)
+        Route::patch('ai-chat/conversations/{conversation}', [AiChatController::class, 'update'])
+            ->name('ai-chat.conversations.update');
+
+        // 会話の削除(会話オーナーのみ。⚠️ 管理者にも許可しない)
+        Route::delete('ai-chat/conversations/{conversation}', [AiChatController::class, 'destroy'])
+            ->name('ai-chat.conversations.destroy');
+
+        // メッセージ送信と AI 応答。日次上限の超過は 429、Gemini の失敗は 502 を返す
+        // (支給 JS resources/js/ai-chat/chat-client.js:48,57 がこの 2 つで文言を出し分ける)
+        Route::post('ai-chat/conversations/{conversation}/messages', [AiChatController::class, 'storeMessage'])
+            ->name('ai-chat.conversations.messages.store');
+    });
+}
 
 // ============================================================
 // 全ロール共通 — 通知(一覧・詳細)

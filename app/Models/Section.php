@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\CertificationStatus;
 use App\Enums\ContentStatus;
 use Database\Factories\SectionFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -88,6 +89,23 @@ class Section extends Model
                 fn (Builder $q) => $q->where('status', ContentStatus::Published->value)
                     ->whereHas('part', fn (Builder $q2) => $q2->where('status', ContentStatus::Published->value)),
             );
+    }
+
+    /**
+     * 受講生に見せてよい Section。`published()` に**資格の公開状態**を足したもの。
+     *
+     * ⚠️ `published()` が見るのは Section / Chapter / Part の 3 段だけで、**資格は見ていない**。
+     *    教材閲覧側は 4 段すべてを 404 の条件にしている
+     *    (app/UseCases/Learning/ShowSectionAction.php:39-43)ので、「受講生が開ける教材か」を
+     *    問うときは `published()` では足りない ——
+     *    公開停止された資格の教材がすり抜ける(S-A-02 のレビューで判明。decisions #243)。
+     */
+    public function scopeStudentVisible(Builder $query): Builder
+    {
+        return $query->published()->whereHas(
+            'chapter.part.certification',
+            fn (Builder $q) => $q->where('status', CertificationStatus::Published->value),
+        );
     }
 
     public function scopeOrdered(Builder $query): Builder

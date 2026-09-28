@@ -38,6 +38,9 @@ class DatabaseSeeder extends Seeder
             MockExamSeeder::class,
             ChatSeeder::class,
             QaBoardSeeder::class,
+            // AI 相談(S-A-02)。固定受講生に会話をぶら下げるため UserSeeder / EnrollmentSeeder に、
+            // 教材つきの会話を作るため ContentSeeder(Section)に依存する
+            AiChatSeeder::class,
             CertificateSeeder::class,
             // 通知は Q&A 回答 / チャット / 面談を素材にするため、それらの後に流す
             NotificationSeeder::class,
