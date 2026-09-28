@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,8 @@ use Tests\TestCase;
  *
  * ⚠️ Google への通信は差し替える。実通信はテストをネットワークとトークンの状態に依存させる。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class GoogleCalendarTest extends TestCase
 {
     use RefreshDatabase;

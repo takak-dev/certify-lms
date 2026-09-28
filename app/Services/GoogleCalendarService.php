@@ -421,9 +421,16 @@ class GoogleCalendarService
      * リクエストごとに使い捨てる。シングルトンにしてアクセストークンを持ち回すと、
      * 別のコーチのトークンが載ったままになる事故が起きうるため。
      *
+     * ⚠️ protected にしてあるのはテストのため(T-A-04 / decisions #249)。Google への本物の通信は
+     *    必ずここを通るので、テスト用の子クラスがここを上書きして「モックを付け忘れて本物まで届いた」
+     *    ことを記録し、そこで止める(decisions #254)。付け忘れを知らせるのは例外ではなく記録のほう ——
+     *    呼び出し側(SyncMeetingAction など)が「Google が失敗しても面談は止めない」ために例外を
+     *    すべて握りつぶすので、例外だけではテストが緑のまま通る。
+     *    private に戻すと子クラスから上書きできず、見張りが効かなくなる。
+     *
      * @throws RuntimeException .env が未設定の場合
      */
-    private function client(): GoogleClient
+    protected function client(): GoogleClient
     {
         if (! $this->isConfigured()) {
             throw new RuntimeException('Google カレンダー連携の設定(GOOGLE_CLIENT_ID 等)がされていません。');

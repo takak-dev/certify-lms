@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\GeminiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,8 @@ use Tests\TestCase;
  *
  * ⚠️ Gemini は差し替える。実通信は 1 度も起きない。
  */
+#[Group('external')]
+#[Group('gemini')]
 class SendMessageTest extends TestCase
 {
     use RefreshDatabase;

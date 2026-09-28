@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\MeetingQuotaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,8 @@ use Tests\TestCase;
  * 署名鍵はテスト専用のダミー(phpunit.xml の STRIPE_WEBHOOK_SECRET)。
  * STRIPE_SECRET は空にしてあるので、このテストから本物の Stripe を叩くことはない。
  */
+#[Group('external')]
+#[Group('stripe')]
 class StripeWebhookTest extends TestCase
 {
     use RefreshDatabase;
@@ -58,11 +61,32 @@ class StripeWebhookTest extends TestCase
     }
 
     /**
-     * 本番と同じ形式の署名ヘッダを付けて Webhook を叩く。
+     * 署名生成ヘルパー: Stripe が本番で付けるのと同じ形の署名ヘッダの値を作る(T-A-04 原典「署名生成ヘルパーを用意し」)。
+     *
+     * 作り方は Stripe の仕様どおり —— 「タイムスタンプ + "." + ボディ」を署名鍵で HMAC-SHA256 にかけ、
+     * `t={タイムスタンプ},v1={16進の署名}` の形に並べる。
+     * 鍵は呼ばれた時点の config から読む(鍵を空にして送るテスト test_webhook_is_rejected_when_secret_is_not_configured
+     * が、空の鍵で計算した署名を作れるように)。
+     *
+     * @param string $payload 送信するボディ(エンコード済みの JSON 文字列。1 バイトでも変えると一致しない)
+     */
+    private function stripeSignatureHeader(string $payload, int $timestamp): string
+    {
+        $signature = hash_hmac('sha256', $timestamp.'.'.$payload, (string) config('services.stripe.webhook_secret'));
+
+        return "t={$timestamp},v1={$signature}";
+    }
+
+    /**
+     * Stripe が送ってくる形の通知を組み立てて Webhook を叩く。
      *
      * @param array<string, mixed> $object 通知の主役(Checkout Session / Charge)
+     * @param 'valid'|'invalid'|'missing' $signature 署名ヘッダの付け方
+     *                                               valid   = 正しい署名(既定)
+     *                                               invalid = 形式は正しいが値が合わない(改ざん・偽装の再現)
+     *                                               missing = 署名ヘッダそのものを付けない(署名欠落の再現)
      */
-    private function postWebhook(string $type, array $object, bool $validSignature = true): TestResponse
+    private function postWebhook(string $type, array $object, string $signature = 'valid'): TestResponse
     {
         // Arrange: Stripe が送ってくる形の JSON を組み立てる
         $payload = json_encode([
@@ -73,20 +97,22 @@ class StripeWebhookTest extends TestCase
         ], JSON_THROW_ON_ERROR);
 
         $timestamp = time();
-        $signature = $validSignature
-            // 正しい署名: タイムスタンプ + "." + ボディ を秘密鍵で HMAC-SHA256
-            ? hash_hmac('sha256', $timestamp.'.'.$payload, (string) config('services.stripe.webhook_secret'))
-            // 改ざん / 偽装の再現: 形式は正しいが値が合わない
-            : str_repeat('0', 64);
+        $server = ['CONTENT_TYPE' => 'application/json'];
+
+        // HTTP_STRIPE_SIGNATURE は、Laravel のテストでヘッダ「Stripe-Signature」を指定する書き方
+        // (server 配列ではヘッダ名を大文字にし、- を _ にして、先頭に HTTP_ を付ける)。
+        // missing のときはこのキーを入れない = ヘッダが届かない。
+        $server += match ($signature) {
+            'valid' => ['HTTP_STRIPE_SIGNATURE' => $this->stripeSignatureHeader($payload, $timestamp)],
+            'invalid' => ['HTTP_STRIPE_SIGNATURE' => "t={$timestamp},v1=".str_repeat('0', 64)],
+            'missing' => [],
+        };
 
         // Act: 生のボディをそのまま送る(Laravel に加工させない)
         return $this->call(
             method: 'POST',
             uri: self::ENDPOINT,
-            server: [
-                'HTTP_STRIPE_SIGNATURE' => "t={$timestamp},v1={$signature}",
-                'CONTENT_TYPE' => 'application/json',
-            ],
+            server: $server,
             content: $payload,
         );
     }
@@ -169,9 +195,34 @@ class StripeWebhookTest extends TestCase
         [$user, $payment] = $this->makePendingPayment(quantity: 3);
 
         // Act: 署名だけが合わない通知(偽装・設定ミスの再現)
-        $response = $this->postWebhook('checkout.session.completed', $this->checkoutSession($payment), validSignature: false);
+        $response = $this->postWebhook('checkout.session.completed', $this->checkoutSession($payment), signature: 'invalid');
 
         // Assert: 400 で拒否。ここが通ると誰でも残数を増やせてしまう
+        $response->assertStatus(400);
+
+        // Assert: 購入記録も残数も一切動かない
+        $this->assertSame(PaymentStatus::Pending, $payment->refresh()->status);
+        $this->assertSame(0, app(MeetingQuotaService::class)->remaining($user->refresh()));
+        $this->assertDatabaseCount('meeting_quota_transactions', 0);
+    }
+
+    /**
+     * 署名ヘッダそのものが無い通知も拒否する(T-A-04 原典「正規署名 / 不正署名 / **署名欠落**」)。
+     *
+     * 不正署名とは通る道が違うので別に固定する —— ヘッダが無いと $request->header() が null を返し
+     * (StripeWebhookController.php:38)、StripeService::verifyWebhook() が (string) で空文字に変えて
+     * SDK に渡す(StripeService.php:132)。この null の扱いを誰かが変えて「ヘッダが無ければ検証を飛ばす」
+     * ようにすると、認証なしの窓口から誰でも残数を増やせてしまう。
+     */
+    public function test_missing_signature_is_rejected_and_changes_nothing(): void
+    {
+        // Arrange: 支払い待ちの購入を 1 件(不正署名のテストと同じ状態から始める)
+        [$user, $payment] = $this->makePendingPayment(quantity: 3);
+
+        // Act: 中身は正しい完了通知だが、Stripe-Signature ヘッダを付けずに送る
+        $response = $this->postWebhook('checkout.session.completed', $this->checkoutSession($payment), signature: 'missing');
+
+        // Assert: 400 で拒否(不正署名と同じ結末)
         $response->assertStatus(400);
 
         // Assert: 購入記録も残数も一切動かない

@@ -14,6 +14,7 @@ use App\Services\GeminiService;
 use App\UseCases\AiChat\StoreMessageAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,8 @@ use Tests\TestCase;
  * ⚠️ Gemini は差し替える。GeminiService を final にしていないのはこのため
  *    (Mockery は final クラスをモックできない)。実通信は 1 度も起きない。
  */
+#[Group('external')]
+#[Group('gemini')]
 class StoreMessageActionTest extends TestCase
 {
     use RefreshDatabase;

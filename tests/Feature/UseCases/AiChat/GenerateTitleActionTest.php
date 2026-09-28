@@ -11,6 +11,7 @@ use App\Services\GeminiService;
 use App\UseCases\AiChat\GenerateTitleAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -20,6 +21,8 @@ use Tests\TestCase;
  * ⭐ 走るのは**初回の AI 応答が完了した直後の 1 回だけ**(支給 JS chat-client.js:72)。
  *    2 回目以降も走ると、受講生が手で直したタイトルを上書きしてしまう。
  */
+#[Group('external')]
+#[Group('gemini')]
 class GenerateTitleActionTest extends TestCase
 {
     use RefreshDatabase;

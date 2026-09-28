@@ -114,7 +114,11 @@ http://localhost:8000 にアクセスし、下記の[ログインアカウント
 ```bash
 sail artisan test                  # 全テスト実行
 sail artisan test --filter=Xxx    # クラス名・メソッド名で絞り込み
+sail artisan test --exclude-group=external   # 外部 API 連携（Google カレンダー / Gemini / Stripe）のテストを除いて実行
+sail artisan test --group=external           # 外部 API 連携のテストだけ実行（google-calendar / gemini / stripe で連携ごとにも絞れる）
 ```
+
+アプリの処理を通るテストは外部 API に通信しません。モックを付け忘れて本物へ送ろうとすると、そのテストは失敗します（`tests/TestCase.php`）。ただし `GoogleCalendarService` だけは、テストの中で `new` で直接作ると見張りの外になるので、鍵を空のままにするか、通信する部分を差し替えてください（Gemini と Stripe は `new` で作っても見張りが効きます）。
 
 ## コード整形
 

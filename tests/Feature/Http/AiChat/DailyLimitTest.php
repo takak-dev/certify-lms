@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\GeminiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,8 @@ use Tests\TestCase;
  *
  * テストでは上限を小さくして回数を現実的に保つ(値そのものではなく**仕組み**を確かめたいため)。
  */
+#[Group('external')]
+#[Group('gemini')]
 class DailyLimitTest extends TestCase
 {
     use RefreshDatabase;

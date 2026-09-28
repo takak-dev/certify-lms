@@ -15,6 +15,7 @@ use App\Services\MeetingAvailabilityService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -273,6 +274,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      *
      * データ: 稼働 09:00-12:00(= 09 / 10 / 11 の 3 枠)に、Google 側で 10:00-11:00 の予定を 1 件置く。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_slots_exclude_times_busy_on_google_calendar(): void
     {
         // Arrange
@@ -302,6 +305,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      * ⚠️ この 1 本が「既存機能を壊していない」ことの担保。busyPeriods が busy を返す状況でも、
      *    google_credentials に行が無いコーチの枠は 1 つも消えてはいけない。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_slots_are_untouched_for_coach_without_google_credential(): void
     {
         // Arrange: 連携していないコーチ。Google 側は「常に busy」を返す設定にしておく。
@@ -331,6 +336,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      * ⚠️ 失敗時は「予定なし」に倒す。安全側(全部消す)ではないが、原典が「止まらない」を
      *    優先しているため。逆に倒すと Google の一時的な不調で予約が一切できなくなる。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_slots_survive_when_google_request_fails(): void
     {
         // Arrange: 連携済だが busyPeriods が必ず例外を投げる状態。
@@ -364,6 +371,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      *
      * ⚠️ この 1 本が無いと、slotsForCertification() 側の除外だけ書いても全テストが緑になる。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_busy_coach_is_not_a_candidate_when_booking(): void
     {
         // Arrange: 10:00 の枠を提供するコーチ 1 人。Google 側に 10:00-11:00 の予定あり。
@@ -389,6 +398,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      *
      * ⚠️ 境界の不等号(< と <=)を取り違えたときに落ちる 1 本。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_adjacent_google_event_does_not_remove_the_slot(): void
     {
         // Arrange: Google 側の予定は 09:00-10:00 ちょうど。
@@ -418,6 +429,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      * googleBusyByCoach() のフォールバックで全コーチが「予定なし」扱いに倒れ、
      * S-A-01 のダブルブッキング防止そのものが無効化される。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_busy_periods_are_cached_between_requests(): void
     {
         // Arrange
@@ -457,6 +470,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      * ⚠️ 失敗を覚えてしまうと、Google が復旧しても TTL の間ずっと「予定なし」に倒れたままになる。
      *    1 回目は失敗、2 回目は成功、という並びで「2 回とも呼ばれる」ことを確かめる。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_failed_lookups_are_not_cached(): void
     {
         // Arrange
@@ -511,6 +526,8 @@ class MeetingAvailabilityServiceTest extends TestCase
      *
      * データ: 同じ資格に 2 人。月曜に枠を持つのは 1 人だけ。
      */
+    #[Group('external')]
+    #[Group('google-calendar')]
     public function test_google_is_only_asked_about_coaches_working_that_day(): void
     {
         // Arrange
