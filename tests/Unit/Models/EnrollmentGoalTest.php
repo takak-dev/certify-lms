@@ -16,7 +16,7 @@ use Tests\TestCase;
  * + 1 判定メソッド (isAchieved) を網羅する。
  *
  * ⛔ scopeDisplayOrder() と isAchieved() は名前を支給コードが固定している
- * (FetchStudentDashboardAction.php:299 / goal-timeline.blade.php:22)。改名するとダッシュボードが落ちる。
+ * (FetchStudentDashboardAction::buildGoalTimeline() / goal-timeline.blade.php:22)。改名するとダッシュボードが落ちる。
  *
  * 手本: tests/Unit/Models/ChapterTest.php
  */

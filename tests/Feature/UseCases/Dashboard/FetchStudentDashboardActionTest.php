@@ -21,6 +21,7 @@ use App\Services\CompletionEligibilityService;
 use App\Services\Contracts\WeaknessAnalysisServiceContract;
 use App\Services\Learning\LearningCalendar;
 use App\Services\LearningCalendarService;
+use App\Services\LearningProgressService;
 use App\Services\StreakService;
 use App\UseCases\Dashboard\FetchStudentDashboardAction;
 use App\UseCases\Dashboard\ViewModels\ResumeCard;
@@ -177,6 +178,29 @@ class FetchStudentDashboardActionTest extends TestCase
 
         // Assert
         $this->assertNull($vm->learningCalendar);
+    }
+
+    public function test_safe_helper_leaves_progress_ratio_null_when_learning_progress_service_throws(): void
+    {
+        // Arrange: 受講中の資格を 1 件持たせ、カードが必ず 1 枚出る状態にする。
+        // 進捗の集計(LearningProgressService)だけを例外を投げる偽物に差し替える。
+        $student = $this->makeStudentWithPlan();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+
+        $progressMock = Mockery::mock(LearningProgressService::class);
+        $progressMock->shouldReceive('sectionCompletionRatios')->andThrow(new \RuntimeException('boom'));
+        $this->app->instance(LearningProgressService::class, $progressMock);
+
+        // Act
+        $vm = app(FetchStudentDashboardAction::class)($student);
+
+        // Assert: 画面全体は組み立てられ(例外が外に出ない)、カードは残るが完了率だけ null になる。
+        //   null のカードは、進捗バーの代わりに「進捗を取得できませんでした。」を出す
+        //   (enrollment-card.blade.php の progressRatio !== null 分岐)。
+        //   0.0 に化けると「進捗 0%」と誤表示されるので、null であることまで確かめる。
+        $this->assertCount(1, $vm->enrollmentCards);
+        $this->assertSame($enrollment->id, $vm->enrollmentCards->first()->enrollmentId);
+        $this->assertNull($vm->enrollmentCards->first()->progressRatio);
     }
 
     public function test_has_no_enrollment_is_false_for_passed_only_student(): void
