@@ -27,6 +27,13 @@ final class ChatMessageSent implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
+    // ⚠️ 接続は sync に固定し、キューに積まずその場で配信する(decisions #272)。
+    // ShouldBroadcast は既定の接続(QUEUE_CONNECTION)のキューに積んでから配信するため
+    // (Illuminate/Broadcasting/BroadcastManager.php:181-183 が $event->connection を読む)、
+    // database にすると相手の画面への反映が worker 待ちになる。リアルタイム配信は T-A-05 のスコープ外なので、
+    // これまで(QUEUE_CONNECTION=sync)と同じ振る舞いに保つ。手本: SyncChatMembersOnCoachAssignmentChanged の $connection
+    public string $connection = 'sync';
+
     public function __construct(public readonly ChatMessage $message) {}
 
     public function broadcastOn(): PrivateChannel

@@ -6,6 +6,8 @@ namespace App\Notifications;
 
 use App\Enums\NotificationType;
 use App\Models\Meeting;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -16,12 +18,21 @@ use Illuminate\Notifications\Notification;
  * 「予約完了後、コーチに通知メールが届きます」と明記している
  * (resources/views/meeting/create.blade.php:158。decisions #77)。
  *
- * ⚠️ ShouldQueue は付けない(キュー化は T-A-05 の担当)。
+ * ⭐ キューで送る(T-A-05)。送信の本体は worker(`sail artisan queue:work`)が行い、
+ * 宛先 × チャネル(database / mail)ごとに別々のジョブになる(Illuminate/Notifications/NotificationSender.php:188-235)。
+ * 失敗したら待ってやり直す(RetriesWithBackoff / decisions #271)。
  */
-class MeetingReservedNotification extends Notification
+class MeetingReservedNotification extends Notification implements ShouldQueue
 {
     // 配信対象の制御(decisions #76)。受講中でない人・管理者には送らない
     use DeliversToActiveUsersOnly;
+
+    // キューに積むための道具一式(接続・キュー名・遅延の指定)。NotificationSender が
+    // $notification->connection などを直接読む(NotificationSender.php:202-214)ため、ShouldQueue と組で必須
+    use Queueable;
+
+    // 失敗したら待ってやり直す(最大 4 回・10 秒 → 60 秒 → 300 秒。decisions #271)
+    use RetriesWithBackoff;
 
     /** メール件名の接頭辞。件名は「接頭辞 + 通知タイトル」で統一する（decisions #80） */
     private const SUBJECT_PREFIX = '[Certify LMS] ';

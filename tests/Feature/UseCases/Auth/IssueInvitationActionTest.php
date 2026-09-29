@@ -17,7 +17,9 @@ use App\Models\Plan;
 use App\Models\User;
 use App\UseCases\Auth\IssueInvitationAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -226,6 +228,44 @@ class IssueInvitationActionTest extends TestCase
         app(IssueInvitationAction::class)('mailtest@example.test', UserRole::Student, $plan, $admin);
 
         Mail::assertQueued(InvitationMail::class, fn (InvitationMail $mail) => $mail->hasTo('mailtest@example.test'));
+    }
+
+    /**
+     * 招待の INSERT が巻き戻ったら、招待メールはキューに積まれないこと(T-A-05 / decisions #270)。
+     *
+     * 原典の要件「データ確定(commit)後に送信をキューへ投入する(ロールバック時に送信が漏れない)」の検証。
+     * 積んでしまうと、worker が「存在しない招待」のメールを送ろうとする。
+     *
+     * ⚠️ Mail::fake() は `afterCommit` 設定(接続単位 / ShouldQueueAfterCommit)を見ずに、積んだ瞬間に記録する
+     * (vendor/laravel/framework/src/Illuminate/Support/Testing/Fakes/MailFake.php:451-461)。
+     * このテストが意味を持つのは、Action が `DB::afterCommit()` で包んでいるから
+     * (巻き戻ると包んだ中身そのものが実行されない)。
+     */
+    public function test_invitation_mail_is_not_queued_when_transaction_rolls_back(): void
+    {
+        // Arrange
+        Mail::fake();
+        $admin = User::factory()->admin()->create();
+        $plan = $this->plan();
+
+        // Act: Action を外側のトランザクションで包み、Action が返った「後」で例外を投げて巻き戻す。
+        //      入れ子のトランザクションでは、afterCommit の予約は一番外側の確定まで待たされる。
+        //      Action の中だけで確定したように見えても、外側が巻き戻れば予約ごと捨てられることを確かめる
+        try {
+            DB::transaction(function () use ($plan, $admin): void {
+                app(IssueInvitationAction::class)('rollback@example.test', UserRole::Student, $plan, $admin);
+
+                throw new RuntimeException('招待の後続処理で失敗したことにする');
+            });
+        } catch (RuntimeException) {
+            // 巻き戻しを起こすための例外なので、ここでは握りつぶす
+        }
+
+        // Assert: ① 本当に巻き戻っていること(ここが崩れると下の検査が意味を失う)
+        $this->assertDatabaseMissing('invitations', ['email' => 'rollback@example.test']);
+        $this->assertDatabaseMissing('users', ['email' => 'rollback@example.test']);
+        // ② 招待が存在しない以上、メールもキューに積まれていないこと
+        Mail::assertNothingQueued();
     }
 
     public function test_inserts_user_status_log_with_invited_status_on_new_user_insert(): void

@@ -17,6 +17,13 @@ use Illuminate\Contracts\Queue\ShouldQueue;
  */
 final class SyncChatMembersOnCoachAssignmentChanged implements ShouldQueue
 {
+    // ⚠️ 接続は sync に固定し、キューに積まずその場で実行する(decisions #266)。
+    // 下の $queue は「接続名」ではなく「キューの名前」。QUEUE_CONNECTION=database にすると
+    // `database` という名前の列に積まれ、既定の `queue:work`(default しか見ない)が拾わず同期が永久に止まる。
+    // T-A-05 の対象は通知・メールで、チャットメンバー同期の振る舞いは変えない。
+    // Laravel はリスナーの $connection を接続先として読む(Illuminate/Events/Dispatcher.php:620-622)
+    public string $connection = 'sync';
+
     public string $queue = 'database';
 
     public function __construct(
