@@ -11,6 +11,7 @@ use App\Notifications\MeetingReminderNotification;
 use App\UseCases\Meeting\SendRemindersAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -26,8 +27,9 @@ use Tests\TestCase;
  * 手本の 2 本立ては AutoCompleteMeetingsCommandTest（抽出）と
  * AutoCompleteMeetingActionTest（冪等性）の関係と同じ。
  *
- * ① 1 宛先の配信が失敗しても残りを巻き込まないこと（decisions #106）
+ * ① 1 宛先の配信が失敗しても残りを巻き込まないこと（decisions #106。メールのやり直しは T-A-05 の #267 / #271 で置き換え）
  * ② 送信済みの判定が「面談単位」ではなく「受信者単位」であること（decisions #104）
+ * ③ キューの接続が database でも、台帳（アプリ内通知）はその場で書かれ、二重に積まれないこと（decisions #267）
  */
 class SendRemindersActionTest extends TestCase
 {
@@ -93,7 +95,10 @@ class SendRemindersActionTest extends TestCase
             ->withArgs(fn (string $message): bool => $message === 'Meeting reminder delivery failed');
 
         // Assert: ⚠️ アプリ内通知の行は via の順序で先に作られているため、失敗した宛先にも残る。
-        //         つまり次回の実行はこの宛先を送信済みと判定し、メールは再送されない（decisions #106）
+        //         つまり次回の実行はこの宛先を送信済みと判定し、Action からメールを送り直すことはない。
+        //         ⚠️ このテストはテスト既定の QUEUE_CONNECTION=sync(phpunit.xml)で動くので、メールがその場で送られ
+        //         例外が Action まで届く。本番(database)ではメールはキューに積まれ、送信の失敗は worker 側で
+        //         起きて RetriesWithBackoff の決まりでやり直す（T-A-05。decisions #267 / #271 が #106 を置き換えた）
         $this->assertSame(1, $first->student->notifications()->count());
     }
 
@@ -113,5 +118,37 @@ class SendRemindersActionTest extends TestCase
         $this->assertSame(1, $meeting->student->notifications()->count());
         $this->assertSame(1, $meeting->coach->notifications()->count());
         $this->assertSame(2, DB::table('notifications')->count());
+    }
+
+    public function test_ledger_is_written_immediately_and_only_mail_is_queued(): void
+    {
+        // Arrange: テストの既定(phpunit.xml の QUEUE_CONNECTION=sync)を、本番と同じ database に切り替える。
+        //          sync のままだと全チャネルがその場で実行され、「台帳だけその場で書く」分け方の効果が見えない
+        config(['queue.default' => 'database']);
+        $meeting = $this->makeMeeting('2026-09-12 10:00:00');
+
+        // Act: 1 回目の巡回
+        $firstSent = $this->dispatch();
+
+        // Assert: ① worker を動かしていないのに、受講生・コーチ 2 人分の台帳(アプリ内通知)がもう書かれている
+        $this->assertSame(2, $firstSent);
+        $this->assertSame(1, $meeting->student->notifications()->count());
+        $this->assertSame(1, $meeting->coach->notifications()->count());
+
+        // Assert: ② キューに積まれたのはメールだけ(2 人 × mail の 2 件)。database のジョブは積まれていない。
+        //         積まれたジョブの中身(SendQueuedNotifications)を取り出して、チャネルを確かめる
+        $channels = DB::table('jobs')->pluck('payload')
+            ->map(fn (string $payload) => unserialize(json_decode($payload, true)['data']['command']))
+            ->map(fn (SendQueuedNotifications $job) => $job->channels)
+            ->all();
+        $this->assertSame([['mail'], ['mail']], $channels);
+
+        // Act: worker が止まったまま、次の巡回が来る(1 時間前は 10 分幅を 5 分間隔で見るので、実際に起きる)
+        $secondSent = $this->dispatch();
+
+        // Assert: ③ 台帳がその場で書かれているので「送信済み」と判定され、同じ宛先に二重に積まれない。
+        //         全チャネルをキューに積む実装だと、台帳がまだ無いのでここで 2 件積み直してしまう
+        $this->assertSame(0, $secondSent);
+        $this->assertSame(2, DB::table('jobs')->count());
     }
 }

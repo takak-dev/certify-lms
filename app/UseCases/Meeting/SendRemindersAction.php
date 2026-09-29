@@ -37,7 +37,8 @@ final class SendRemindersAction
     /**
      * @param Collection<int, Meeting> $meetings 呼び出し側で student / coach を eager load しておく
      *
-     * @return int 実際に送った通知の件数(面談数ではなく宛先の延べ数)。配信に失敗した宛先は数えない
+     * @return int 実際に送った通知の件数(面談数ではなく宛先の延べ数)。メールはキューに積んだ時点で数える。
+     *             notify() が例外を投げた宛先は数えない
      */
     public function __invoke(Collection $meetings, MeetingReminderWindow $window): int
     {
@@ -78,19 +79,20 @@ final class SendRemindersAction
                 $user->notify(new MeetingReminderNotification($meeting, $window));
                 $sent++;
             } catch (Throwable $e) {
-                // ⚠️ メールは同期送信で、SMTP が落ちると notify() から例外が抜ける
-                // (NotificationSender は例外を握り潰さない)。捕まえないと chunkById のループごと
-                // 止まり、まだ処理していない面談が丸ごと未配信のまま終わる。
+                // ⚠️ notify() から例外が抜ける経路は 2 つ残る(NotificationSender は例外を握り潰さない)。
+                //    ①アプリ内通知(database)はその場で書き込む(sync。decisions #267)ので、DB の例外が抜ける
+                //    ②メール(mail)はキューに積むだけだが、積む処理(jobs への INSERT)が失敗すると例外が抜ける
+                // 捕まえないと chunkById のループごと止まり、まだ処理していない面談が丸ごと未配信のまま終わる。
                 //
-                // 捕まえても「そのメールを送り直す」ことはしない。原典がリトライをスコープ外に置き
-                // (T-A-05 のキュー化で解決する)、アプリ内通知の行は via の順序どおり先に作られるため
-                // 次回の実行は送信済みと判定する(decisions #106)。
+                // メール送信そのもの(SMTP)の失敗は worker 側で起き、ここには届かない。やり直しは
+                // RetriesWithBackoff の決まりに任せる(T-A-05。decisions #267 / #271 が #106 の「送り直さない」を置き換えた)。
                 // 書き方は既存の唯一の前例に揃える(StartLearningSession.php:38。
                 // 関係する ID を並べ、例外はメッセージを出す。本文は英語)。
-                // ⚠️ 例外メッセージに載りうる範囲は宛先アドレスだけではない。
-                //    ①mail: Symfony Mailer は SMTP の応答文字列をそのまま例外にするため
+                // ⚠️ 例外メッセージに個人情報が載りうる。
+                //    mail: 接続が sync のとき(テスト既定の phpunit.xml / .env を database に変えていない環境)は
+                //      メールもその場で送られ、Symfony Mailer が SMTP の応答文字列をそのまま例外にするため
                 //      `550 5.1.1 <foo@example.com> User unknown` の形で宛先が入る
-                //    ②database: この catch は via の database チャネルの例外も拾う。QueryException は
+                //    database: この catch は via の database チャネルの例外も拾う。QueryException は
                 //      実行した SQL に値を埋め込んだ文字列をメッセージにする
                 //      (Illuminate/Database/QueryException.php:65 の formatMessage)ため、
                 //      **通知データまるごと**(相手方の氏名・面談 URL・宛先 ID)がログに落ちる

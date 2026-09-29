@@ -68,6 +68,7 @@ routes/web.php            … 入口。URL・ミドルウェア・Controller の
 | `Policies/` | 認可ポリシー（28 個）。「誰がこのリソースに何をできるか」 |
 | `Enums/` | 状態・種別の PHP Enum（例: `EnrollmentStatus` / `MeetingStatus` / `UserRole`） |
 | `Notifications/` / `Mail/` | 通知・メール |
+| `Jobs/` | worker（`sail artisan queue:work`）が実行する非同期処理。Action がコミット後に積む（例: お知らせの一斉配信を宛先ごとに展開する `DeliverAnnouncementJob`） |
 | `Console/Commands/` | 日次バッチ（招待の期限切れ・面談の自動完了など。`app/Console/Kernel.php` でスケジュール登録） |
 | `Events/` / `Listeners/` | ドメインイベント |
 | `Exceptions/` | ドメイン例外 |

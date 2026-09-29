@@ -6,12 +6,14 @@ namespace Tests\Feature\Http\Announcement;
 
 use App\Enums\AnnouncementTargetType;
 use App\Enums\EnrollmentStatus;
+use App\Jobs\DeliverAnnouncementJob;
 use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\User;
 use App\Notifications\AdminAnnouncementNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -337,6 +339,87 @@ class StoreTest extends TestCase
 
         $this->assertSame(0, Announcement::count());
         Notification::assertNothingSent();
+    }
+
+    /**
+     * 一斉配信は「配る係」のジョブを 1 件積むだけで返り、宛先ごとへの展開と送信は worker が行うこと
+     * (T-A-05 / decisions #274)。
+     *
+     * 原典の要件「一斉配信で対象受講生が多くても、発火元リクエストがブロックされない」と
+     * 「一時的な送信失敗時に段階的な待機を挟んで自動リトライする」の検証。
+     * 画面の処理が積むのは人数に関係なく 1 件なので、待ち時間が人数に比例しない。
+     *
+     * ⭐ Notification::fake() を使わない。偽物に差し替えるとキューを通らないため、
+     * 「何件積まれたか」「積まれたジョブにやり直しの決まりが書かれているか」を確かめられない。
+     */
+    public function test_broadcast_queues_one_delivery_job_and_worker_fans_it_out(): void
+    {
+        // Arrange: テストの既定(phpunit.xml の QUEUE_CONNECTION=sync)を、本番と同じ database に切り替える。
+        //          sync のままだとリクエストの中で全員に送り終えてしまい、非同期になったことが見えない
+        config(['queue.default' => 'database']);
+        $admin = User::factory()->admin()->create();
+        User::factory()->student()->inProgress()->count(3)->create();
+
+        // Act: 配信する
+        $response = $this->actingAs($admin)->post(route('admin.announcements.store'), $this->payload());
+
+        // Assert: ① リクエストは送信を待たずに返っている(＝まだ誰にもアプリ内通知の行が無い)
+        $response->assertRedirect();
+        $this->assertSame(0, DB::table('notifications')->count());
+
+        // Assert: ② 積まれたのは「配る係」の 1 件だけ。受講生が 3 人でも 1 万人でも 1 件
+        $this->assertSame([DeliverAnnouncementJob::class], $this->queuedJobNames());
+
+        // Act: worker に 1 件だけ処理させる(--once)。配る係が宛先ごとの通知ジョブに展開する
+        $this->artisan('queue:work', ['--once' => true, '--memory' => $this->workerMemoryLimitMb()])
+            ->assertExitCode(0);
+
+        // Assert: ③ 3 人 × 2 チャネル(database / mail) = 6 件に展開された。
+        //         1 件ずつ別のジョブなので、1 人の送信が失敗しても他の人の送信を巻き込まない
+        $payloads = DB::table('jobs')->pluck('payload')
+            ->map(fn (string $payload) => json_decode($payload, true));
+        $this->assertCount(6, $payloads);
+
+        // Assert: ④ どのジョブにも「最大 4 回・10 秒 → 60 秒 → 300 秒」のやり直しの決まりが写っている
+        //         (RetriesWithBackoff / decisions #271)。Laravel はジョブの中身にこの 2 つを書き込み、
+        //         worker はそれを読んで待ち時間を決める(Illuminate/Queue/Queue.php:146,149)
+        foreach ($payloads as $payload) {
+            $this->assertSame(AdminAnnouncementNotification::class, $payload['displayName']);
+            $this->assertSame(4, $payload['maxTries']);
+            $this->assertSame('10,60,300', $payload['backoff']);
+        }
+
+        // Act: 残りを全部処理させる。--stop-when-empty で、棚が空になったら終わる(本番の worker は終わらない)
+        $this->artisan('queue:work', ['--stop-when-empty' => true, '--memory' => $this->workerMemoryLimitMb()])
+            ->assertExitCode(0);
+
+        // Assert: ⑤ 3 人に行が届き、棚は空になっている
+        $this->assertSame(3, DB::table('notifications')->count());
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    /**
+     * キューに積まれているジョブの名前(displayName)を積まれた順に並べる
+     *
+     * @return array<int, string>
+     */
+    private function queuedJobNames(): array
+    {
+        return DB::table('jobs')->orderBy('id')->pluck('payload')
+            ->map(fn (string $payload) => json_decode($payload, true)['displayName'])
+            ->all();
+    }
+
+    /**
+     * テストの中で動かす worker のメモリ上限(MB)。「いまの使用量 + 128MB」にする。
+     *
+     * ⚠️ worker は 1 件処理するごとに**プロセス全体**の使用量を見て、既定の 128MB を超えていたら
+     * 終了コード 12 で止まる(vendor/laravel/framework/src/Illuminate/Queue/Worker.php:28,306,740-742)。
+     * テストでは プロセス = PHPUnit そのものなので、全件実行の途中ではすでに超えていて 1 件目で止まる(実測)
+     */
+    private function workerMemoryLimitMb(): int
+    {
+        return (int) ceil(memory_get_usage(true) / 1024 / 1024) + 128;
     }
 
     /** 指定した資格に、指定した状態で受講登録している受講中の受講生を作る */

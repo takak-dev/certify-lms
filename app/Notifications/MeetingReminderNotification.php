@@ -7,6 +7,8 @@ namespace App\Notifications;
 use App\Enums\MeetingReminderWindow;
 use App\Enums\NotificationType;
 use App\Models\Meeting;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -23,12 +25,21 @@ use Illuminate\Notifications\Notification;
  * notifications テーブルの `meeting_id` と `reminder_window` を引いて判定する
  * (decisions #104)。この 2 つのキーを落とすと重複検査が成立しない。
  *
- * ⚠️ ShouldQueue は付けない(キュー化は T-A-05 の担当)。
+ * ⭐ キューで送る(T-A-05)。送信の本体は worker(`sail artisan queue:work`)が行い、
+ * 宛先 × チャネル(database / mail)ごとに別々のジョブになる(Illuminate/Notifications/NotificationSender.php:188-235)。
+ * 失敗したら待ってやり直す(RetriesWithBackoff / decisions #271)。
  */
-class MeetingReminderNotification extends Notification
+class MeetingReminderNotification extends Notification implements ShouldQueue
 {
     // 配信対象の制御(decisions #76)。受講中でない人・管理者には送らない
     use DeliversToActiveUsersOnly;
+
+    // キューに積むための道具一式(接続・キュー名・遅延の指定)。NotificationSender が
+    // $notification->connection などを直接読む(NotificationSender.php:202-214)ため、ShouldQueue と組で必須
+    use Queueable;
+
+    // 失敗したら待ってやり直す(最大 4 回・10 秒 → 60 秒 → 300 秒。decisions #271)
+    use RetriesWithBackoff;
 
     /** メール件名の接頭辞。件名は「接頭辞 + 通知タイトル」で統一する（decisions #80） */
     private const SUBJECT_PREFIX = '[Certify LMS] ';
@@ -44,6 +55,27 @@ class MeetingReminderNotification extends Notification
     public function via(object $notifiable): array
     {
         return ['database', 'mail'];
+    }
+
+    /**
+     * チャネルごとの接続先。アプリ内通知(database)だけはキューに積まず、その場で書き込む(decisions #267)。
+     *
+     * ⚠️ この通知の database の行は「送信済み台帳」を兼ねる(上の PHPDoc)。全チャネルをキューに積むと
+     * 行を書くのが worker になり、worker が遅れている間に次の巡回(1 時間前は 10 分幅を 5 分間隔で見る)が
+     * 「まだ送っていない」と判定して同じ宛先に再度積む → 二重送信になる。
+     * 台帳をその場で書けば、次の巡回は必ず送信済みと判定できる。
+     *
+     * mail はここに書かないので既定の接続(QUEUE_CONNECTION)でキューに積まれ、失敗したら
+     * RetriesWithBackoff の決まりでやり直す。
+     * Laravel はこのメソッドをチャネルごとに引く(Illuminate/Notifications/NotificationSender.php:204-206)。
+     *
+     * @return array<string, string>
+     */
+    public function viaConnections(): array
+    {
+        return [
+            'database' => 'sync',
+        ];
     }
 
     /**

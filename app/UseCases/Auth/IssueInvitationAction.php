@@ -153,7 +153,13 @@ final class IssueInvitationAction
                 'status' => InvitationStatus::Pending->value,
             ]);
 
-            Mail::send(new InvitationMail($invitation));
+            // 招待メールはキューに積む(InvitationMail が ShouldQueue)。
+            // afterCommit に包むのは、この先で例外が出て招待の INSERT が巻き戻ったときに
+            // 「存在しない招待のメール」だけがキューに残るのを防ぐため(decisions #270)。
+            // 手本: QaReply/StoreAction.php の通知送信
+            DB::afterCommit(function () use ($invitation): void {
+                Mail::send(new InvitationMail($invitation));
+            });
 
             return $invitation;
         });

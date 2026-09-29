@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace App\UseCases\Announcement;
 
+use App\Jobs\DeliverAnnouncementJob;
 use App\Models\Announcement;
 use App\Models\User;
-use App\Notifications\AdminAnnouncementNotification;
 use App\Services\AnnouncementRecipientService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 
 /**
  * お知らせを配信するユースケース。本チケットの本体。
@@ -17,18 +16,24 @@ use Illuminate\Support\Facades\Notification;
  * 手順は 3 つ。
  *   ① 配信対象の受講生を解決する(3 タイプの分岐)
  *   ② announcements に 1 行記録する(配信件数と配信時刻を確定させる)
- *   ③ 対象全員へ通知を送る(アプリ内 + メール)
+ *   ③ 対象全員へ通知を送るための「配る係」のジョブを 1 件積む(送信は worker。T-A-05 / decisions #274)
  *
  * ⭐ ③ だけトランザクションの外(`DB::afterCommit`)に出している(decisions #92)。
+ * T-A-05 以降は、巻き戻ったのに配る係だけがキューに残るのを防ぐ意味もある(decisions #270)。
  * 中に入れると、送信の途中で失敗したときに記録と database 通知だけが巻き戻り、
  * **送信済みのメールだけが残る**。監査したい場面でこそ履歴が消えることになる。
  * 既存の通知 4 クラスも同じ形(手本: `Chat/StoreMessageAction.php:44`)。
  *
  * ⚠️ そのため `dispatched_count` の意味は「実際に届いた人数」ではなく
- * 「送信を試みた人数」。配信対象は `User::canReceiveNotifications()` より狭いので、
- * 送信直前の判定(`DeliversToActiveUsersOnly`)で落ちる者はおらず、正常時は両者が一致する。
+ * 「送信を試みた人数」(＝キューに積んだ人数)。配信対象は `User::canReceiveNotifications()` より狭いので、
+ * 積んだ時点では送信直前の判定(`DeliversToActiveUsersOnly`)で落ちる者はいない。
+ * ただし判定は worker が送る時点で行われるため、積んでから送るまでの間に退会・修了した人には届かず、
+ * その場合だけ両者がずれる(T-A-05)。
  *
- * ⚠️ キュー化しない。メール配信の非同期化は T-A-05(Advance)の担当。
+ * ⭐ 画面の処理では「配る係」のジョブ(DeliverAnnouncementJob)を 1 件積むだけで返る(T-A-05 / decisions #274)。
+ * 宛先ごとの通知ジョブへの展開と送信は worker(`sail artisan queue:work`)が行うので、
+ * 待ち時間が受講生の人数に比例しない。宛先 × チャネルごとに別々のジョブになるので、
+ * 1 人の送信失敗が他の人やこのリクエストに伝播しない。
  */
 final class StoreAction
 {
@@ -68,9 +73,9 @@ final class StoreAction
             $announcement->save();
 
             DB::afterCommit(function () use ($recipients, $announcement): void {
-                // Notification::send() は複数の宛先へまとめて送るための入口。
-                // 対象が 0 件なら何も起きない(例外にはならない)
-                Notification::send($recipients, new AdminAnnouncementNotification($announcement));
+                // 宛先はこの時点で確定させ、ID の一覧として渡す(配信件数と実際の相手を一致させるため。decisions #274)。
+                // 対象が 0 件でもジョブは積む。展開する宛先が無いだけで、何も送られない
+                DeliverAnnouncementJob::dispatch($announcement, $recipients->pluck('id')->all());
             });
 
             return $announcement;
