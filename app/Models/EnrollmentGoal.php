@@ -72,7 +72,7 @@ class EnrollmentGoal extends Model
      * 未達成を先に → 目標期日が近い順(期日なしは末尾) → 同期日は作成日の新しい順。
      *
      * ⛔ このスコープ名は支給コードが固定している。
-     * app/UseCases/Dashboard/FetchStudentDashboardAction.php:299 が ->displayOrder() を呼ぶ。
+     * app/UseCases/Dashboard/FetchStudentDashboardAction.php の buildGoalTimeline() が ->displayOrder() を呼ぶ。
      *
      * 「期日なしを末尾へ」は列の値では表せないので CASE 式で 0 / 1 に変換して並べる。
      * 手本: app/UseCases/Enrollment/IndexAction.php の

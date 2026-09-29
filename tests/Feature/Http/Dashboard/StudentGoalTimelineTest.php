@@ -14,7 +14,7 @@ use Tests\TestCase;
  * 受講生ダッシュボードの個人目標タイムラインの検証。
  *
  * ⚠️ ここは支給コードが先に存在していた箇所で、こちらが名前を合わせる側。
- *    - FetchStudentDashboardAction.php:296-299 が EnrollmentGoal::query()->displayOrder() を呼ぶ
+ *    - FetchStudentDashboardAction::buildGoalTimeline() が EnrollmentGoal::query()->displayOrder() を呼ぶ
  *    - dashboard/_partials/student/goal-timeline.blade.php:22 が $goal->isAchieved() を呼ぶ
  *    どちらかの名前を変えるとこの画面が落ちる。名前の固定がこのテストの主目的。
  *
@@ -76,7 +76,7 @@ class StudentGoalTimelineTest extends TestCase
      * 複数の受講登録の目標が1本のタイムラインに混ざる。
      *
      * 支給コードは受講登録ごとではなく「その受講生の全目標」を1つの流れとして出す
-     * （FetchStudentDashboardAction.php:297 が user_id で絞っている）。
+     * （FetchStudentDashboardAction::buildGoalTimeline() が user_id で絞っている）。
      */
     public function test_goals_from_multiple_enrollments_are_merged(): void
     {
