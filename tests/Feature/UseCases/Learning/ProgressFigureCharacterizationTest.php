@@ -25,6 +25,7 @@ use Tests\TestCase;
  * 「正しい振る舞い」ではなく「改修前の振る舞い」を固定する。学習進捗の集計を Service へ
  * 集約する前にこのテストを書いて緑を確認し、集約後も**このファイルを 1 行も変えずに**緑であれば、
  * 4 つの画面に表示される進捗の数値が改修の前後で同一だと示せる(原典の要件「集計結果は完全に同一に保つ」)。
+ * (集約を行ったコミットの時点では、このファイルを 1 行も変えずに緑だった。その後に変えたのはコメントだけ)
  *
  * そのため、Service ではなく**画面に数値を渡す入口**(Action / Controller)を直接叩く。
  *
@@ -132,7 +133,7 @@ class ProgressFigureCharacterizationTest extends TestCase
 
     /**
      * 管理者・コーチ向けの受講登録詳細(/enrollments/{id})に渡る 4 階層サマリ。
-     * こちらは Controller の private メソッドで集計しているので、HTTP 経由で確かめる。
+     * 改修前は Controller の private メソッドで集計していて Action を直接呼べなかったので、HTTP 経由で確かめる。
      */
     public function test_staff_enrollment_detail_page_progress_figures(): void
     {
