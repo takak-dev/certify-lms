@@ -49,11 +49,21 @@ class Enrollment extends Model
     ];
 
     /**
+     * 受講生。退会(SoftDelete)後も引けるように withTrashed で参照する
+     * (退会者の氏名を表示し続ける decisions #46 / #67 / #105 と同じ扱い。手本は Meeting::student())。
+     *
+     * ⚠️ 退会はユーザーを論理削除するだけで、受講登録は残る(UserWithdrawalService::withdraw())。
+     *    これが無いと退会者の受講登録で `$enrollment->user` が null になり、
+     *    担当コーチのダッシュボード・チャット画面が 500 になり、試験日超過の自動学習中止
+     *    (FailExpiredEnrollmentsCommand)と管理者の学習中止(Enrollment\FailAction)も
+     *    User 型の引数に null を渡して TypeError になる。実測で確認済み。
+     *    user_id は必須 + restrictOnDelete(物理削除を DB が拒否)なので、withTrashed を付ければ必ず引ける。
+     *
      * @return BelongsTo<User, $this>
      */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**

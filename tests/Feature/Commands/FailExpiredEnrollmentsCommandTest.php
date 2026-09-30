@@ -6,6 +6,8 @@ namespace Tests\Feature\Commands;
 
 use App\Enums\EnrollmentStatus;
 use App\Models\Enrollment;
+use App\Models\User;
+use App\Services\UserWithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -61,5 +63,35 @@ class FailExpiredEnrollmentsCommandTest extends TestCase
             'changed_by_user_id' => null,
             'changed_reason' => '試験日超過による自動失敗',
         ]);
+    }
+
+    /**
+     * 退会した受講生の受講登録が混ざっていても、処理が止まらず全件を学習中止にできること。
+     *
+     * 退会はユーザーを論理削除するだけで受講登録は残るので、試験日を過ぎれば処理の対象になる。
+     * そのとき受講登録から受講生(->user)が引けないと、後続の処理に null が渡って例外になり、
+     * 同じ回に処理するはずだった他の受講生まで学習中止にならない。
+     */
+    public function test_withdrawn_students_enrollment_does_not_stop_the_run(): void
+    {
+        // Arrange: 退会した受講生の受講登録を先に作る(ULID は作成順に並ぶので、処理でも先に来る)。
+        //   その後ろに、ふつうの受講生の受講登録を置く。先頭で止まると後ろが処理されないことを確かめるため。
+        $withdrawn = User::factory()->student()->inProgress()->create();
+        $withdrawnEnrollment = Enrollment::factory()->for($withdrawn)->learning()
+            ->create(['exam_date' => now()->subDay()->toDateString()]);
+        $activeEnrollment = Enrollment::factory()->learning()
+            ->create(['exam_date' => now()->subDay()->toDateString()]);
+
+        // 退会は本物の処理で行う(factory で status だけ変えると、論理削除が起きず再現しない)。
+        app(UserWithdrawalService::class)->withdraw($withdrawn);
+
+        // Act
+        $this->artisan('enrollments:fail-expired')
+            ->assertExitCode(0)
+            ->expectsOutputToContain('Failed 2 expired enrollments.');
+
+        // Assert: 退会者の分も、その後ろの受講生の分も学習中止になっている。
+        $this->assertSame(EnrollmentStatus::Failed, $withdrawnEnrollment->fresh()->status);
+        $this->assertSame(EnrollmentStatus::Failed, $activeEnrollment->fresh()->status);
     }
 }
