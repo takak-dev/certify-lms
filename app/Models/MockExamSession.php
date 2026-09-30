@@ -70,11 +70,21 @@ class MockExamSession extends Model
     }
 
     /**
+     * この受験の受講登録。受講解除(SoftDelete)後も引けるように withTrashed で参照する。
+     *
+     * ⚠️ 受講解除(Enrollment\DestroyAction)は受講登録を論理削除するだけで、受験セッションは残る。
+     *    これが無いと解除済みの受講登録のセッションで `$session->enrollment` が null になり、
+     *    結果画面(MockExamSessionController::show())と管理者・コーチの受験詳細(Monitor\ShowAction)が
+     *    WeaknessAnalysisService::getPassProbabilityBand(Enrollment) に null を渡して 500 になる。実測で確認済み。
+     *    画面側もこの受講登録でリンクを作る(mock-exam-session/*.blade.php)。
+     *    enrollment_id は必須 + restrictOnDelete(物理削除を DB が拒否)なので、withTrashed を付ければ必ず引ける。
+     *    書き方は ChatRoom::enrollment() / Meeting::enrollment() と同じ。
+     *
      * @return BelongsTo<Enrollment, $this>
      */
     public function enrollment(): BelongsTo
     {
-        return $this->belongsTo(Enrollment::class);
+        return $this->belongsTo(Enrollment::class)->withTrashed();
     }
 
     /**

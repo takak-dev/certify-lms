@@ -66,7 +66,7 @@ class EnrollmentNote extends Model
      * これが無いと退会したコーチのメモで $note->author が null になる。
      * 支給 Blade は :42 が `$note->author?->name ?? '不明'` と null を想定した書き方なので 500 にはならないが、
      * 「氏名をそのまま表示し続ける」という決定に反して『不明』と出てしまう。
-     * 手本: QaReply.php:45 / Meeting.php:73。
+     * 手本: QaReply.php:45 / Meeting::coach()。
      *
      * @return BelongsTo<User, $this>
      */

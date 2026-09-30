@@ -25,7 +25,7 @@ use Illuminate\View\View;
  * - indexAsCoach: コーチ専用、未読あり / filter / keyword の query string をそのまま保持して redirect
  * - show: ルーム詳細(rooms-pane + thread)。viewer の role に応じて navRoomsQuery を切替
  *   (student/coach は forUser、admin は filterForAdmin)
- * - storeMessage: メッセージ送信(`Policy::view` で authorize、コーチ未割当時は 422 を Controller で振り分け)
+ * - storeMessage: メッセージ送信(`Policy::postTo` で authorize。受講解除したルームは送れない。コーチ未割当時は 422 を Controller で振り分け)
  */
 class ChatRoomController extends Controller
 {

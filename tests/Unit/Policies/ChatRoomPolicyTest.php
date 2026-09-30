@@ -78,4 +78,36 @@ class ChatRoomPolicyTest extends TestCase
             'E-3 撤回: ChatRoom eager 生成で Enrollment ベース認可は不要',
         );
     }
+
+    /**
+     * 受講解除(受講登録の論理削除)したルームには、参加者でも書き足せないこと(decisions #285)。
+     * postTo は送信の POST(StoreMessageRequest)が、sendMessage は画面の送信欄が見る。両方が同じ条件で拒否に変わる。
+     */
+    public function test_post_to_and_send_message_are_denied_after_unenrolling(): void
+    {
+        // Arrange: 担当コーチのいる資格の受講登録に、受講生が参加するルーム(解除前は送れる状態)。
+        $student = User::factory()->student()->inProgress()->create();
+        $coach = User::factory()->coach()->inProgress()->create();
+        $certification = Certification::factory()->published()->create();
+        $certification->coaches()->attach($coach->id, [
+            'id' => (string) Str::ulid(),
+            'assigned_by_user_id' => User::factory()->admin()->create()->id,
+            'assigned_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $enrollment = Enrollment::factory()->for($student)->for($certification)->create();
+        $room = ChatRoom::factory()->for($enrollment)->create();
+        ChatMember::factory()->create(['chat_room_id' => $room->id, 'user_id' => $student->id]);
+        $policy = new ChatRoomPolicy;
+        $this->assertTrue($policy->postTo($student, $room->fresh()), '解除前は送れる');
+
+        // Act: 受講登録を論理削除する(受講解除と同じ状態)。
+        $enrollment->delete();
+
+        // Assert: 閲覧はできるが、postTo も sendMessage も拒否になる。
+        $this->assertTrue($policy->view($student, $room->fresh()), '解除後も過去のやり取りは読める');
+        $this->assertFalse($policy->postTo($student, $room->fresh()), '解除後は送信の POST が拒否される');
+        $this->assertFalse($policy->sendMessage($student, $room->fresh()), '解除後は画面の送信欄も出ない');
+    }
 }

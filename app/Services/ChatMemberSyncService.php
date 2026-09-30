@@ -70,7 +70,10 @@ class ChatMemberSyncService
         DB::transaction(function () use ($certification): void {
             ChatRoom::query()
                 ->whereHas('enrollment', function ($q) use ($certification): void {
-                    $q->where('certification_id', $certification->id);
+                    // 受講解除したルームには参加者を足さない(解除後は読み取り専用。decisions #285)。
+                    // ChatRoom::enrollment() は解除済みも引く(withTrashed)ので、ここで withoutTrashed() を明示する。
+                    // 足すと、新しい担当コーチに閉じたルームの過去メッセージがすべて未読として数えられる。
+                    $q->withoutTrashed()->where('certification_id', $certification->id);
                 })
                 ->with('enrollment.certification.coaches')
                 ->chunkById(100, function ($rooms): void {
