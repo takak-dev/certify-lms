@@ -78,14 +78,15 @@ class GoogleCredential extends Model
      * ⚠️ withTrashed は付けない。手本は CoachAvailability.php:46 —— 同じ面談設定タブにある
      *    「コーチ本人の設定」で、あちらも付けていない。
      *
-     *    このプロジェクトの belongsTo(User) を実測すると 35 件(この行自身を含む)で、
-     *    withTrashed が付くのは 12 件。いずれも「退会後も氏名を表示し続ける」もの
-     *    (Meeting.coach / EnrollmentNote.author / QaThread.user /
-     *    UserStatusLog.changedBy / UserPlanLog.changedBy など。decisions #46)。
+     *    このプロジェクトの belongsTo(User) を実測すると 37 件(この行自身を含む。2026-09-30)で、
+     *    withTrashed が付くのは 13 件。いずれも「退会後も氏名を表示し続ける」もの
+     *    (Meeting.coach / EnrollmentNote.author / QaThread.user / Enrollment.user /
+     *    UserStatusLog.changedBy / UserPlanLog.changedBy など。decisions #46 / #284)。
      *    ⚠️ 「changedBy なら付く」ではない —— EnrollmentStatusLog.changedBy には付いていない。
-     *    残り 23 件は氏名を画面に出さないもので、「本人しか見ない持ち物」
-     *    (Enrollment / Certificate / LearningSession / ChatMember)のほか、
-     *    createdBy / updatedBy のような監査列も含む。
+     *    残り 24 件は withTrashed を付けていないもの。氏名を画面に出さないもの(LearningSession、
+     *    createdBy / updatedBy のような監査列など)のほか、退会者を `?->name ?? '代替文言'` で
+     *    別の表示に置き換えているもの(Certificate.user / ChatMessage.sender / MockExamSession.user)や、
+     *    退会者が一覧から消えるもの(ChatMember.user)も含む。
      *    連携情報の所有者名を画面に出す動線は無い(支給 Blade は $user->googleCredential の
      *    順方向しか読まない)ので後者に揃える。
      *
