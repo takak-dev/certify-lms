@@ -10,7 +10,7 @@ use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
  * 受講生 1 人あたりの 1 日の送信回数の上限に達したときの例外(S-A-02・HTTP 429)。
  *
  * 原典の非機能要件「受講生 1 人あたりの 1 日の送信回数に上限を設ける」。
- * 上限の値は config('ai-chat.daily_message_limit')(既定 20。decisions #234)。
+ * 上限の値は config('ai-chat.daily_message_limit')(既定 5。decisions #247)。
  *
  * ⚠️ 429 でなければならない。支給 JS resources/js/ai-chat/chat-client.js:48-51 が
  *    429 のときだけ `type: 'rate-limit'` とし、「本日の利用上限に達しました。明日 0:00 以降に

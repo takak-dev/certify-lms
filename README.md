@@ -92,7 +92,20 @@ sail artisan queue:work
 - **コードを変更したら worker を再起動してください**（`Ctrl + C` で止めて再度起動）。worker は起動時のコードを読み込んだまま動き続けます
 - 既存の環境を更新した場合は、`.env` の `QUEUE_CONNECTION` を `database` に変更し、`sail artisan migrate` で `jobs` テーブルを作成してください
 
-### 9. 動作確認
+### 9. スケジューラ（定期実行）の起動
+
+面談リマインダーや期限切れの自動処理は、スケジューラが定期的に起動します。Sail のコンテナはスケジューラを自動では動かさないので、**別ターミナルで次のコマンドを起動したままにしてください。**
+
+```bash
+sail artisan schedule:work
+```
+
+- 起動していない間は次の処理が動きません：面談リマインダー（前日 18:00・開始 1 時間前）、終了時刻を過ぎた面談の自動完了、目標受験日を過ぎた受講登録の学習中止、招待の期限切れ、プラン期間満了による修了、放置された学習セッションの終了
+- リマインダーのメールは、あわせて[キュー worker](#8-キュー-worker-の起動) も起動していないと届きません
+- 登録されている処理と次回の実行時刻は `sail artisan schedule:list` で確認できます
+- 本番環境での起動方法は [Laravel 公式: Task Scheduling](https://laravel.com/docs/10.x/scheduling#running-the-scheduler) を参照してください
+
+### 10. 動作確認
 
 http://localhost:8000 にアクセスし、下記の[ログインアカウント](#ログインアカウント)でログインできればセットアップ完了です。
 
@@ -315,12 +328,14 @@ STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxx
 # 機能全体の ON / OFF。false にすると画面・ルート・サイドバー項目ごと消える（既定 true）
 AI_CHAT_ENABLED=true
 
-# 受講生 1 人あたりの 1 日の送信上限（既定 20）
-AI_CHAT_DAILY_MESSAGE_LIMIT=20
+# 受講生 1 人あたりの 1 日の送信上限（既定 5）
+AI_CHAT_DAILY_MESSAGE_LIMIT=5
 
 # 会話タイトルの自動生成。false にすると作成時の仮タイトルのまま（既定 true）
 AI_CHAT_AUTO_TITLE=true
 ```
+
+タイトルの自動生成は、**会話ごとに Gemini へのリクエストを最大 1 回増やします**（受講生の送信上限には数えません）。無料枠で動かすなら、`AI_CHAT_AUTO_TITLE=false` にするとその分を節約できます。
 
 使用するモデルやシステム指示は `config/ai-chat.php` にまとまっており、いずれも `.env` で上書きできます（既定のモデルは `gemini-3.8-flash`）。
 
