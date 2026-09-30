@@ -46,7 +46,7 @@ class QaThread extends Model
      */
     public function user(): BelongsTo
     {
-        // 退会(論理削除)後も氏名を表示し続ける(decisions #67)。手本: Invitation.php:50 / Meeting.php:84
+        // 退会(論理削除)後も氏名を表示し続ける(decisions #67)。手本: Invitation.php:50 / Meeting::coach()
         return $this->belongsTo(User::class)->withTrashed();
     }
 

@@ -52,11 +52,20 @@ class Meeting extends Model
     ];
 
     /**
+     * この面談の受講登録。受講解除(SoftDelete)後も引けるように withTrashed で参照する。
+     *
+     * ⚠️ 受講解除(Enrollment\DestroyAction)は受講登録を論理削除するだけで、面談は残る。
+     *    これが無いと解除済みの受講登録の面談で `$meeting->enrollment` が null になり、面談の一覧・詳細
+     *    (meeting/index.blade.php・meeting/show.blade.php・meeting/coach/index.blade.php)が
+     *    資格名を読めず 500 になる。実測で確認済み。
+     *    enrollment_id は必須 + restrictOnDelete(物理削除を DB が拒否)なので、withTrashed を付ければ必ず引ける。
+     *    当事者(coach() / student())が退会後も引けるのと同じ扱い(decisions #105)。
+     *
      * @return BelongsTo<Enrollment, $this>
      */
     public function enrollment(): BelongsTo
     {
-        return $this->belongsTo(Enrollment::class);
+        return $this->belongsTo(Enrollment::class)->withTrashed();
     }
 
     /**

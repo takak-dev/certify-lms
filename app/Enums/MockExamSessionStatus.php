@@ -9,6 +9,7 @@ namespace App\Enums;
  *
  * 状態遷移: NotStarted → InProgress → Submitted → Graded (SubmitAction 内で同 transaction)
  *           NotStarted → Canceled (DestroyAction)
+ *           NotStarted / InProgress → Canceled (Enrollment\DestroyAction。受講解除の後始末。decisions #285)
  * 終端: Graded / Canceled
  */
 enum MockExamSessionStatus: string

@@ -62,7 +62,7 @@ class AiChatConversationPolicy
      * その会話にメッセージを送れるか。
      *
      * ⚠️ AiChatMessage 用の Policy を別に作らず、親の ability として持つ。
-     *    直接の手本は ChatRoomPolicy::sendMessage(app/Policies/ChatRoomPolicy.php:41) ——
+     *    直接の手本は ChatRoomPolicy::sendMessage() ——
      *    あちらも子(ChatMessage)専用の Policy を作らず、親が書き込み権限を持っている
      *    (ChatMessagePolicy はリポジトリに存在しない)。
      *    子に専用クラスを立てている QaReplyPolicy は、回答自体に編集 / 削除の ability が

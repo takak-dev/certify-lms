@@ -87,4 +87,37 @@ class ChatMemberSyncServiceTest extends TestCase
         $this->assertDatabaseHas('chat_members', ['chat_room_id' => $room1->id, 'user_id' => $coach->id]);
         $this->assertDatabaseHas('chat_members', ['chat_room_id' => $room2->id, 'user_id' => $coach->id]);
     }
+
+    /**
+     * 資格に担当コーチが加わっても、受講解除したルームには参加者として足さないこと(decisions #285)。
+     *
+     * ChatRoom::enrollment() は解除済みも引く(withTrashed)ので、何もしないと whereHas がそれを引き継ぎ、
+     * 閉じたルームにも新しいコーチが足される(過去のメッセージがすべて未読として数えられる)。
+     */
+    public function test_sync_for_certification_skips_rooms_of_unenrolled_enrollments(): void
+    {
+        // Arrange: 同じ資格に、受講中のルームと受講解除したルームが 1 つずつある。
+        $admin = User::factory()->admin()->inProgress()->create();
+        $certification = Certification::factory()->published()->create();
+        $active = Enrollment::factory()->for($certification)->create();
+        $unenrolled = Enrollment::factory()->for($certification)->create();
+        $activeRoom = ChatRoom::create(['enrollment_id' => $active->id, 'last_message_at' => null]);
+        $unenrolledRoom = ChatRoom::create(['enrollment_id' => $unenrolled->id, 'last_message_at' => null]);
+        $unenrolled->delete();
+
+        // Act: 新しいコーチを資格に割り当て、資格単位で同期する。
+        $newCoach = User::factory()->coach()->inProgress()->create();
+        $certification->coaches()->attach($newCoach->id, [
+            'id' => (string) Str::ulid(),
+            'assigned_by_user_id' => $admin->id,
+            'assigned_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        app(ChatMemberSyncService::class)->syncForCertification($certification->fresh());
+
+        // Assert: 受講中のルームにだけ足され、受講解除したルームには足されない。
+        $this->assertDatabaseHas('chat_members', ['chat_room_id' => $activeRoom->id, 'user_id' => $newCoach->id]);
+        $this->assertDatabaseMissing('chat_members', ['chat_room_id' => $unenrolledRoom->id, 'user_id' => $newCoach->id]);
+    }
 }

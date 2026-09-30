@@ -37,11 +37,21 @@ class ChatRoom extends Model
     ];
 
     /**
+     * このルームの受講登録。受講解除(SoftDelete)後も引けるように withTrashed で参照する。
+     *
+     * ⚠️ 受講解除(Enrollment\DestroyAction)は受講登録を論理削除するだけで、ルームは残る。
+     *    これが無いと解除済みのルームで `$room->enrollment` が null になり、ルームの見出し
+     *    (chat-room/show.blade.php)と左の一覧(chat-room/_partials/rooms-pane.blade.php)が
+     *    資格名を読めず 500 になる(受講生・コーチ・管理者の全員)。実測で確認済み。
+     *    enrollment_id は必須 + restrictOnDelete(物理削除を DB が拒否)なので、withTrashed を付ければ必ず引ける。
+     *    書き方は Enrollment::user() と同じ(あちらは退会した受講生)。
+     *    解除済みのルームは読み取り専用(送信は ChatRoomPolicy::postTo が止める。decisions #285)。一覧からは隠さない。
+     *
      * @return BelongsTo<Enrollment, $this>
      */
     public function enrollment(): BelongsTo
     {
-        return $this->belongsTo(Enrollment::class);
+        return $this->belongsTo(Enrollment::class)->withTrashed();
     }
 
     /**

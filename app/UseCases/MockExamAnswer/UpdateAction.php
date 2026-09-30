@@ -7,6 +7,7 @@ namespace App\UseCases\MockExamAnswer;
 use App\Enums\MockExamSessionStatus;
 use App\Exceptions\MockExam\MockExamOptionMismatchException;
 use App\Exceptions\MockExam\MockExamQuestionNotInSessionException;
+use App\Exceptions\MockExam\MockExamSessionEnrollmentUnenrolledException;
 use App\Exceptions\MockExam\MockExamSessionNotInProgressException;
 use App\Models\MockExamAnswer;
 use App\Models\MockExamQuestionOption;
@@ -16,10 +17,11 @@ use Illuminate\Support\Facades\DB;
 /**
  * 受験中の個別問題への解答を逐次保存(UPSERT) するユースケース。
  *
- * 3 段ガード:
+ * 4 段ガード:
  *   1. session.status === InProgress(lockForUpdate)
- *   2. mock_exam_question_id ∈ session.generated_question_ids
- *   3. selected_option_id ∈ question.options
+ *   2. session.enrollment が受講解除(論理削除)されていない(decisions #285)
+ *   3. mock_exam_question_id ∈ session.generated_question_ids
+ *   4. selected_option_id ∈ question.options
  *
  * is_correct は採点時(GradeAction) に確定するため、本 Action では確定せず常に false で UPSERT する。
  * 既存解答が存在する場合は selected_option_id / selected_option_body / answered_at を UPDATE する。
@@ -30,6 +32,7 @@ final class UpdateAction
      * @param array{mock_exam_question_id: string, selected_option_id: string} $validated
      *
      * @throws MockExamSessionNotInProgressException
+     * @throws MockExamSessionEnrollmentUnenrolledException
      * @throws MockExamQuestionNotInSessionException
      * @throws MockExamOptionMismatchException
      */
@@ -42,6 +45,12 @@ final class UpdateAction
 
             if ($session->status !== MockExamSessionStatus::InProgress) {
                 throw new MockExamSessionNotInProgressException;
+            }
+
+            // 受講解除した資格の受験は続けられない(decisions #285)。解除時にキャンセル済みにするが、
+            // 解除より前から残っている受験や、解除と作成が同時に走った場合はここで止める。
+            if ($session->enrollment->trashed()) {
+                throw new MockExamSessionEnrollmentUnenrolledException;
             }
 
             $generated = $session->generated_question_ids ?? [];
