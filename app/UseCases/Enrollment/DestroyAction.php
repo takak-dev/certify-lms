@@ -8,6 +8,7 @@ use App\Enums\EnrollmentStatus;
 use App\Exceptions\Enrollment\EnrollmentInvalidTransitionException;
 use App\Models\Enrollment;
 use App\Services\DefaultEnrollmentService;
+use App\Services\EnrollmentStatsService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -18,11 +19,15 @@ use Illuminate\Support\Facades\DB;
  *
  * ⚠️ 配下の個人目標は物理削除する(decisions #135 / 面談2 Q44)。
  *    受講登録そのものは論理削除なので、外部キーの cascade は発火しない。アプリ側で明示的に消す。
+ *
+ * ⚠️ 管理者ダッシュボードの集計キャッシュもここで消す(decisions #215)。受講解除は状態が変わらず
+ *    EnrollmentStatusChangeService::recordStatusChange() を通らないため、そちらの削除では拾えない。
  */
 final class DestroyAction
 {
     public function __construct(
         private readonly DefaultEnrollmentService $defaultEnrollmentService,
+        private readonly EnrollmentStatsService $stats,
     ) {}
 
     /**
@@ -44,6 +49,10 @@ final class DestroyAction
             $enrollment->goals()->delete();
 
             $enrollment->delete();
+
+            // 集計は論理削除した行を数えないので、受講中の件数・修了率が変わる。
+            // 予約するだけで、実際に消えるのはこのトランザクションが確定したとき(decisions #282)。
+            $this->stats->forgetAdminDashboardCache();
 
             $this->defaultEnrollmentService->resolveAfterStatusChange($user, $enrollment);
         });

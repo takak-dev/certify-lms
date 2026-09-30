@@ -187,6 +187,10 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 
 - `SANCTUM_STATEFUL_DOMAINS` — Sanctum の Cookie 認証を受け付ける画面のドメイン。トップバーの通知ポップオーバーが叩く通知 API（`/api/v1/notifications`）がこの認証で守られています。未設定なら `APP_URL` のホストとポートが自動で含まれます。指定すると既定値が置き換わる点と、ポート番号まで含める点に注意してください。別オリジンの FE は `CORS_ALLOWED_ORIGINS` にも併せて追加します（[Laravel 公式: Configuring Your First-Party Domains](https://laravel.com/docs/10.x/sanctum#configuring-your-first-party-domains)）
 
+次の項目は運用に合わせて調整するためのもので、未設定のままで動作します。
+
+- `DASHBOARD_ADMIN_CACHE_TTL_SECONDS` — 管理者ダッシュボードの集計（受講中 / 修了 / 学習中止の件数と資格別修了率）をキャッシュする秒数（既定 300）。受講登録・修了・学習中止・再開・受講解除のときは期限前でもキャッシュが消えるので、この値が効くのは資格名の変更などが画面に反映されるまでの遅れだけです。`0` にするとキャッシュせず毎回集計します。`php artisan config:cache` を使う環境で変えたときは、キャッシュを作り直してください（[Laravel 公式: Configuration Caching](https://laravel.com/docs/10.x/configuration#configuration-caching)）
+
 ### Google カレンダー連携のセットアップ（任意）
 
 コーチが自分の Google アカウントを連携すると、Google カレンダーに予定がある時刻が受講生の予約画面から除外され、面談の成立・キャンセルがカレンダーへ自動反映されます。

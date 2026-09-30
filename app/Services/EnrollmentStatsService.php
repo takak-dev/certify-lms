@@ -6,12 +6,15 @@ namespace App\Services;
 
 use App\Enums\EnrollmentStatus;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Enrollment 集計を提供する Service。admin ダッシュボード KPI で利用される。
  *
  * 全体 KPI(adminKpi)と資格別修了率(completionRateByCertification)は全 enrollment を走査する重い集計。
+ * そのため 2 つとも結果をキャッシュし、連続表示では再計算しない(T-A-06 / decisions #279)。
+ * キーと保存時間は config/dashboard.php。
  *
  * 集計対象は SoftDelete 除外。paused 集計は採用しない(3 値モデル)。
  * 受講生ダッシュボードの Action / Controller テストで Mockery 経由 mock するため `final` は付けない。
@@ -24,6 +27,24 @@ class EnrollmentStatsService
      * @return array{learning_count: int, passed_count: int, failed_count: int, total: int, by_certification: array<int, array{certification_id: string, certification_name: string, learning: int, passed: int, failed: int, total: int}>}
      */
     public function adminKpi(): array
+    {
+        // Cache::remember(キー, 秒数, 関数):
+        //   キーに値があればそれを返す(関数は呼ばれない = クエリが 1 本も飛ばない)。
+        //   無ければ関数を実行し、結果を保存してから返す。
+        //   関数が例外を投げたときは何も保存されない(次の表示で集計し直す)。
+        return Cache::remember(
+            config('dashboard.admin_kpi_cache_key'),
+            config('dashboard.admin_cache_ttl_seconds'),
+            fn (): array => $this->calculateAdminKpi(),
+        );
+    }
+
+    /**
+     * adminKpi() の集計本体(キャッシュを通さない)。
+     *
+     * @return array{learning_count: int, passed_count: int, failed_count: int, total: int, by_certification: array<int, array{certification_id: string, certification_name: string, learning: int, passed: int, failed: int, total: int}>}
+     */
+    private function calculateAdminKpi(): array
     {
         $counts = DB::table('enrollments')
             ->whereNull('deleted_at')
@@ -77,6 +98,21 @@ class EnrollmentStatsService
      */
     public function completionRateByCertification(): Collection
     {
+        // adminKpi() と同じ形。キーだけ別にする(支給テストが 2 本を別々に確かめるため)。
+        return Cache::remember(
+            config('dashboard.admin_completion_rate_cache_key'),
+            config('dashboard.admin_cache_ttl_seconds'),
+            fn (): Collection => $this->calculateCompletionRateByCertification(),
+        );
+    }
+
+    /**
+     * completionRateByCertification() の集計本体(キャッシュを通さない)。
+     *
+     * @return Collection<int, array{certification_id: string, certification_name: string, learning: int, passed: int, failed: int, total: int, completion_rate: float}>
+     */
+    private function calculateCompletionRateByCertification(): Collection
+    {
         return collect($this->byCertification())
             ->filter(fn (array $row): bool => $row['total'] > 0)
             ->map(function (array $row): array {
@@ -86,6 +122,31 @@ class EnrollmentStatsService
             })
             ->sortByDesc('total')
             ->values();
+    }
+
+    /**
+     * adminKpi() と completionRateByCertification() のキャッシュを 2 本とも消す。
+     * 受講状態の遷移(EnrollmentStatusChangeService::recordStatusChange())と受講解除から呼ぶ(decisions #281)。
+     *
+     * 消すのはトランザクションの確定後(decisions #282)。確定前に消すと、確定までの間に開かれた
+     * ダッシュボードが「まだ変わっていない値」で集計し直してキャッシュに入れ、それが保存時間いっぱい残る。
+     * DB::afterCommit(関数) は、トランザクションの中なら確定まで待ち(ロールバックなら実行しない)、
+     * 外ならその場で実行する。
+     *
+     * ⚠️ 確定後に例外が出ると、状態の変更は保存済みなのに 500 が返る。消し損ねても
+     *    保存時間が切れれば最新値に戻るので、握りつぶして report に回す
+     *    (手本: app/UseCases/User/DestroyAvatarAction.php の deleteAfterCommit())。
+     */
+    public function forgetAdminDashboardCache(): void
+    {
+        DB::afterCommit(function (): void {
+            try {
+                Cache::forget(config('dashboard.admin_kpi_cache_key'));
+                Cache::forget(config('dashboard.admin_completion_rate_cache_key'));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     /**
